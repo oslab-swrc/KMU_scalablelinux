@@ -519,38 +519,6 @@ static void vma_rb_erase(struct vm_area_struct *vma, struct rb_root *root)
 	rb_erase_augmented(&vma->vm_rb, root, &vma_gap_callbacks);
 }
 
-/*
- * vma has some anon_vma assigned, and is already inserted on that
- * anon_vma's interval trees.
- *
- * Before updating the vma's vm_start / vm_end / vm_pgoff fields, the
- * vma must be removed from the anon_vma's interval trees using
- * anon_vma_interval_tree_pre_update_vma().
- *
- * After the update, the vma will be reinserted using
- * anon_vma_interval_tree_post_update_vma().
- *
- * The entire update must be protected by exclusive mmap_sem and by
- * the root anon_vma's mutex.
- */
-static inline void
-anon_vma_interval_tree_pre_update_vma(struct vm_area_struct *vma)
-{
-	struct anon_vma_chain *avc;
-
-	list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
-		anon_vma_interval_tree_remove(avc, &avc->anon_vma->rb_root);
-}
-
-static inline void
-anon_vma_interval_tree_post_update_vma(struct vm_area_struct *vma)
-{
-	struct anon_vma_chain *avc;
-
-	list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
-		anon_vma_interval_tree_insert(avc, &avc->anon_vma->rb_root);
-}
-
 static int find_vma_links(struct mm_struct *mm, unsigned long addr,
 		unsigned long end, struct vm_area_struct **pprev,
 		struct rb_node ***rb_link, struct rb_node **rb_parent)
@@ -813,17 +781,14 @@ again:			remove_next = 1 + (end > next->vm_end);
 
 	vma_adjust_trans_huge(vma, start, end, adjust_next);
 
-	anon_vma = vma->anon_vma;
-	if (!anon_vma && adjust_next)
-		anon_vma = next->anon_vma;
-	if (anon_vma) {
+	if (vma->anon_vma && (importer || start != vma->vm_start)) {
+	    anon_vma = vma->anon_vma;
 		VM_BUG_ON_VMA(adjust_next && next->anon_vma &&
 			  anon_vma != next->anon_vma, next);
+	} else if (adjust_next && next->anon_vma)
+	    anon_vma = next->anon_vma;
+	if (anon_vma)
 		anon_vma_lock_write(anon_vma);
-		anon_vma_interval_tree_pre_update_vma(vma);
-		if (adjust_next)
-			anon_vma_interval_tree_pre_update_vma(next);
-	}
 
 	if (head) {
 		flush_dcache_mmap_lock(mapping);
@@ -880,11 +845,9 @@ again:			remove_next = 1 + (end > next->vm_end);
 	}
 
 	if (anon_vma) {
-		anon_vma_interval_tree_post_update_vma(vma);
-		if (adjust_next)
-			anon_vma_interval_tree_post_update_vma(next);
 		anon_vma_unlock_write(anon_vma);
 	}
+
 	if (mapping) {
 		pr_debug("i_mmap write unlock : %s\n", __func__);
 		i_mmap_unlock_write(mapping);
@@ -2204,9 +2167,7 @@ int expand_upwards(struct vm_area_struct *vma, unsigned long address)
 				 * against concurrent vma expansions.
 				 */
 				spin_lock(&vma->vm_mm->page_table_lock);
-				anon_vma_interval_tree_pre_update_vma(vma);
 				vma->vm_end = address;
-				anon_vma_interval_tree_post_update_vma(vma);
 				if (vma->vm_next)
 					vma_gap_update(vma->vm_next);
 				else
@@ -2275,10 +2236,8 @@ int expand_downwards(struct vm_area_struct *vma,
 				 * against concurrent vma expansions.
 				 */
 				spin_lock(&vma->vm_mm->page_table_lock);
-				anon_vma_interval_tree_pre_update_vma(vma);
 				vma->vm_start = address;
 				vma->vm_pgoff -= grow;
-				anon_vma_interval_tree_post_update_vma(vma);
 				vma_gap_update(vma);
 				spin_unlock(&vma->vm_mm->page_table_lock);
 
@@ -3060,7 +3019,7 @@ static DEFINE_MUTEX(mm_all_locks_mutex);
 
 static void vm_lock_anon_vma(struct mm_struct *mm, struct anon_vma *anon_vma)
 {
-	if (!test_bit(0, (unsigned long *) &anon_vma->root->rb_root.rb_node)) {
+	if (!test_bit(0, (unsigned long *) &anon_vma->root->head.next)) {
 		/*
 		 * The LSB of head.next can't change from under us
 		 * because we hold the mm_all_locks_mutex.
@@ -3076,7 +3035,7 @@ static void vm_lock_anon_vma(struct mm_struct *mm, struct anon_vma *anon_vma)
 		 * anon_vma->root->rwsem.
 		 */
 		if (__test_and_set_bit(0, (unsigned long *)
-				       &anon_vma->root->rb_root.rb_node))
+				       &anon_vma->root->head.next))
 			BUG();
 	}
 }
@@ -3164,7 +3123,7 @@ out_unlock:
 
 static void vm_unlock_anon_vma(struct anon_vma *anon_vma)
 {
-	if (test_bit(0, (unsigned long *) &anon_vma->root->rb_root.rb_node)) {
+	if (test_bit(0, (unsigned long *) &anon_vma->root->head.next)) {
 		/*
 		 * The LSB of head.next can't change to 0 from under
 		 * us because we hold the mm_all_locks_mutex.
@@ -3178,7 +3137,7 @@ static void vm_unlock_anon_vma(struct anon_vma *anon_vma)
 		 * anon_vma->root->rwsem.
 		 */
 		if (!__test_and_clear_bit(0, (unsigned long *)
-					  &anon_vma->root->rb_root.rb_node))
+					  &anon_vma->root->head.next))
 			BUG();
 		anon_vma_unlock_write(anon_vma);
 	}

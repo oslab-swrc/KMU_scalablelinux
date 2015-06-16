@@ -131,7 +131,7 @@ static void anon_vma_chain_link(struct vm_area_struct *vma,
 	avc->vma = vma;
 	avc->anon_vma = anon_vma;
 	list_add(&avc->same_vma, &vma->anon_vma_chain);
-	anon_vma_interval_tree_insert(avc, &anon_vma->rb_root);
+	list_add_tail(&avc->same_anon_vma, &anon_vma->head);
 }
 
 /**
@@ -370,13 +370,13 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 		struct anon_vma *anon_vma = avc->anon_vma;
 
 		root = lock_anon_vma_root(root, anon_vma);
-		anon_vma_interval_tree_remove(avc, &anon_vma->rb_root);
+		list_del(&avc->same_anon_vma);
 
 		/*
 		 * Leave empty anon_vmas on the list - we'll need
 		 * to free them outside the lock.
 		 */
-		if (RB_EMPTY_ROOT(&anon_vma->rb_root)) {
+		if (list_empty(&anon_vma->head)) {
 			anon_vma->parent->degree--;
 			continue;
 		}
@@ -410,7 +410,7 @@ static void anon_vma_ctor(void *data)
 
 	init_rwsem(&anon_vma->rwsem);
 	atomic_set(&anon_vma->refcount, 0);
-	anon_vma->rb_root = RB_ROOT;
+	INIT_LIST_HEAD(&anon_vma->head);
 }
 
 void __init anon_vma_init(void)
@@ -1676,7 +1676,6 @@ static struct anon_vma *rmap_walk_anon_lock(struct page *page,
 static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 {
 	struct anon_vma *anon_vma;
-	pgoff_t pgoff;
 	struct anon_vma_chain *avc;
 	int ret = SWAP_AGAIN;
 
@@ -1684,8 +1683,7 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 	if (!anon_vma)
 		return ret;
 
-	pgoff = page_to_pgoff(page);
-	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff, pgoff) {
+	list_for_each_entry(avc, &anon_vma->head, same_anon_vma) {
 		struct vm_area_struct *vma = avc->vma;
 		unsigned long address = vma_address(page, vma);
 

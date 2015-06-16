@@ -54,7 +54,7 @@ struct anon_vma {
 	 * is serialized by a system wide lock only visible to
 	 * mm_take_all_locks() (mm_all_locks_mutex).
 	 */
-	struct rb_root rb_root;	/* Interval tree of private "related" vmas */
+	struct list_head head;
 };
 
 /*
@@ -74,8 +74,7 @@ struct anon_vma_chain {
 	struct vm_area_struct *vma;
 	struct anon_vma *anon_vma;
 	struct list_head same_vma;   /* locked by mmap_sem & page_table_lock */
-	struct rb_node rb;			/* locked by anon_vma->rwsem */
-	unsigned long rb_subtree_last;
+	struct list_head same_anon_vma; /* locked by anon_vma->mutex */
 #ifdef CONFIG_DEBUG_VM_RB
 	unsigned long cached_vma_start, cached_vma_last;
 #endif
