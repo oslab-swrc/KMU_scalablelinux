@@ -14,6 +14,8 @@
 #include <linux/page-flags-layout.h>
 #include <asm/page.h>
 #include <asm/mmu.h>
+#include <linux/lockfree_list.h>
+#include <linux/llist.h>
 
 #ifndef AT_VECTOR_SIZE_ARCH
 #define AT_VECTOR_SIZE_ARCH 0
@@ -283,10 +285,12 @@ struct vm_area_struct {
 	 * For areas with an address space and backing store,
 	 * linkage into the address_space->i_mmap interval tree.
 	 */
-	struct {
-		struct rb_node rb;
-		unsigned long rb_subtree_last;
+	union {
+		struct lockfree_list_node linear;
+		struct list_head nonlinear;
 	} shared;
+
+	struct llist_node llnode; /* delayed free */
 
 	/*
 	 * A file's MAP_PRIVATE vma can be in both i_mmap tree and anon_vma
@@ -294,8 +298,10 @@ struct vm_area_struct {
 	 * can only be in the i_mmap tree.  An anonymous MAP_PRIVATE, stack
 	 * or brk vma (with NULL file) can only be in an anon_vma list.
 	 */
-	struct list_head anon_vma_chain; /* Serialized by mmap_sem &
+	struct lockfree_list_head anon_vma_chain; /* Serialized by mmap_sem &
 					  * page_table_lock */
+	struct lockfree_list_node	anon_vma_chain_head_node;
+	struct lockfree_list_node	anon_vma_chain_tail_node;
 	struct anon_vma *anon_vma;	/* Serialized by page_table_lock */
 
 	/* Function pointers to deal with this struct. */

@@ -118,6 +118,7 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 		if (vma->vm_file) {
 			mapping = vma->vm_file->f_mapping;
 			i_mmap_lock_write(mapping);
+			pr_info("i_mmap write lock : %s\n", __func__);
 		}
 		if (vma->anon_vma) {
 			anon_vma = vma->anon_vma;
@@ -153,8 +154,10 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 	pte_unmap_unlock(old_pte - 1, old_ptl);
 	if (anon_vma)
 		anon_vma_unlock_write(anon_vma);
-	if (mapping)
+	if (mapping) {
+	    pr_debug("i_mmap write lock : %s\n", __func__);
 		i_mmap_unlock_write(mapping);
+	}
 }
 
 #define LATENCY_LIMIT	(64 * PAGE_SIZE)

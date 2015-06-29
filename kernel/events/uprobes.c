@@ -38,6 +38,7 @@
 #include <linux/task_work.h>
 #include <linux/shmem_fs.h>
 
+#include <linux/lockfree_list.h>
 #include <linux/uprobes.h>
 
 #define UINSNS_PER_PAGE			(PAGE_SIZE/UPROBE_XOL_SLOT_BYTES)
@@ -716,16 +717,24 @@ static inline struct map_info *free_map_info(struct map_info *info)
 static struct map_info *
 build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
 {
-	unsigned long pgoff = offset >> PAGE_SHIFT;
 	struct vm_area_struct *vma;
 	struct map_info *curr = NULL;
 	struct map_info *prev = NULL;
 	struct map_info *info;
 	int more = 0;
+	struct lockfree_list_node *node;
+	struct lockfree_list_node *onode;
 
  again:
 	i_mmap_lock_read(mapping);
-	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
+	node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
+	onode = mapping->i_mmap_head_node.next;
+	pr_debug("i_mmap read lock : %s\n", __func__);
+	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
+		if (&vma->shared.linear == &mapping->i_mmap_tail_node)
+			break;
+		if (is_marked_ref((long)onode))
+			continue;
 		if (!valid_vma(vma, is_register))
 			continue;
 

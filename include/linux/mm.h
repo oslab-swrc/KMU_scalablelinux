@@ -9,6 +9,7 @@
 #include <linux/gfp.h>
 #include <linux/bug.h>
 #include <linux/list.h>
+#include <linux/lockfree_list.h>
 #include <linux/mmzone.h>
 #include <linux/rbtree.h>
 #include <linux/atomic.h>
@@ -23,7 +24,6 @@
 
 struct mempolicy;
 struct anon_vma;
-struct anon_vma_chain;
 struct file_ra_state;
 struct user_struct;
 struct writeback_control;
@@ -1757,38 +1757,15 @@ extern int min_free_kbytes;
 extern atomic_long_t mmap_pages_allocated;
 extern int nommu_shrink_inode_mappings(struct inode *, size_t, size_t);
 
-/* interval_tree.c */
-void vma_interval_tree_insert(struct vm_area_struct *node,
-			      struct rb_root *root);
-void vma_interval_tree_insert_after(struct vm_area_struct *node,
-				    struct vm_area_struct *prev,
-				    struct rb_root *root);
-void vma_interval_tree_remove(struct vm_area_struct *node,
-			      struct rb_root *root);
-struct vm_area_struct *vma_interval_tree_iter_first(struct rb_root *root,
-				unsigned long start, unsigned long last);
-struct vm_area_struct *vma_interval_tree_iter_next(struct vm_area_struct *node,
-				unsigned long start, unsigned long last);
-
-#define vma_interval_tree_foreach(vma, root, start, last)		\
-	for (vma = vma_interval_tree_iter_first(root, start, last);	\
-	     vma; vma = vma_interval_tree_iter_next(vma, start, last))
-
-void anon_vma_interval_tree_insert(struct anon_vma_chain *node,
-				   struct rb_root *root);
-void anon_vma_interval_tree_remove(struct anon_vma_chain *node,
-				   struct rb_root *root);
-struct anon_vma_chain *anon_vma_interval_tree_iter_first(
-	struct rb_root *root, unsigned long start, unsigned long last);
-struct anon_vma_chain *anon_vma_interval_tree_iter_next(
-	struct anon_vma_chain *node, unsigned long start, unsigned long last);
-#ifdef CONFIG_DEBUG_VM_RB
-void anon_vma_interval_tree_verify(struct anon_vma_chain *node);
-#endif
-
-#define anon_vma_interval_tree_foreach(avc, root, start, last)		 \
-	for (avc = anon_vma_interval_tree_iter_first(root, start, last); \
-	     avc; avc = anon_vma_interval_tree_iter_next(avc, start, last))
+static inline void vma_linear_insert(struct vm_area_struct *vma,
+					struct lockfree_list_head  *list)
+{
+	LOCKFREE_LIST_SAVE_KEY(vma, shared.linear);
+	LOCKFREE_LIST_CLEAR_GC(vma, shared.linear);
+	//pr_info("vma_linear_insert\n");
+	if (!lockfree_list_add(&vma->shared.linear, list))
+		pr_info("vma lockfree list add fail!!!\n");
+}
 
 /* mmap.c */
 extern int __vm_enough_memory(struct mm_struct *mm, long pages, int cap_sys_admin);
