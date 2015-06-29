@@ -5,10 +5,12 @@
  */
 
 #include <linux/list.h>
+#include <linux/llist.h>
 #include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/rwsem.h>
 #include <linux/memcontrol.h>
+#include <linux/lockfree_list.h>
 
 /*
  * The anon_vma heads a list of private "related" vmas, to scan if
@@ -26,7 +28,7 @@
  */
 struct anon_vma {
 	struct anon_vma *root;		/* Root of this anon_vma tree */
-	struct rw_semaphore rwsem;	/* W: modification, R: walking the list */
+	rwlock_t rwsem;	/* W: modification, R: walking the list */
 	/*
 	 * The refcount is taken on an anon_vma when there is no
 	 * guarantee that the vma of page tables will exist for
@@ -42,7 +44,7 @@ struct anon_vma {
 	 * This counter is used for making decision about reusing anon_vma
 	 * instead of forking new one. See comments in function anon_vma_clone.
 	 */
-	unsigned degree;
+	atomic_t degree;
 
 	struct anon_vma *parent;	/* Parent of this anon_vma */
 
@@ -54,7 +56,9 @@ struct anon_vma {
 	 * is serialized by a system wide lock only visible to
 	 * mm_take_all_locks() (mm_all_locks_mutex).
 	 */
-	struct rb_root rb_root;	/* Interval tree of private "related" vmas */
+	struct lockfree_list_head	head;
+	struct lockfree_list_node	head_node;
+	struct lockfree_list_node	tail_node;
 };
 
 /*
@@ -73,9 +77,9 @@ struct anon_vma {
 struct anon_vma_chain {
 	struct vm_area_struct *vma;
 	struct anon_vma *anon_vma;
-	struct list_head same_vma;   /* locked by mmap_sem & page_table_lock */
-	struct rb_node rb;			/* locked by anon_vma->rwsem */
-	unsigned long rb_subtree_last;
+	struct llist_node llnode; /* delayed free */
+	struct lockfree_list_node same_vma; /* locked by mmap_sem & page_table_lock */
+	struct lockfree_list_node same_anon_vma; /* locked by anon_vma->mutex */
 #ifdef CONFIG_DEBUG_VM_RB
 	unsigned long cached_vma_start, cached_vma_last;
 #endif
@@ -109,36 +113,35 @@ static inline void vma_lock_anon_vma(struct vm_area_struct *vma)
 {
 	struct anon_vma *anon_vma = vma->anon_vma;
 	if (anon_vma)
-		down_write(&anon_vma->root->rwsem);
+		write_lock(&anon_vma->root->rwsem);
 }
 
 static inline void vma_unlock_anon_vma(struct vm_area_struct *vma)
 {
 	struct anon_vma *anon_vma = vma->anon_vma;
 	if (anon_vma)
-		up_write(&anon_vma->root->rwsem);
+		write_unlock(&anon_vma->root->rwsem);
 }
 
 static inline void anon_vma_lock_write(struct anon_vma *anon_vma)
 {
-	down_write(&anon_vma->root->rwsem);
+	read_lock(&anon_vma->root->rwsem);
 }
 
 static inline void anon_vma_unlock_write(struct anon_vma *anon_vma)
 {
-	up_write(&anon_vma->root->rwsem);
+	read_unlock(&anon_vma->root->rwsem);
 }
 
 static inline void anon_vma_lock_read(struct anon_vma *anon_vma)
 {
-	down_read(&anon_vma->root->rwsem);
+	write_lock(&anon_vma->root->rwsem);
 }
 
 static inline void anon_vma_unlock_read(struct anon_vma *anon_vma)
 {
-	up_read(&anon_vma->root->rwsem);
+	write_unlock(&anon_vma->root->rwsem);
 }
-
 
 /*
  * anon_vma helper functions.

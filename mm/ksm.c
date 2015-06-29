@@ -37,6 +37,7 @@
 #include <linux/freezer.h>
 #include <linux/oom.h>
 #include <linux/numa.h>
+#include <linux/lockfree_list.h>
 
 #include <asm/tlbflush.h>
 #include "internal.h"
@@ -1913,10 +1914,18 @@ again:
 		struct anon_vma *anon_vma = rmap_item->anon_vma;
 		struct anon_vma_chain *vmac;
 		struct vm_area_struct *vma;
+		struct lockfree_list_node *node;
+		struct lockfree_list_node *onode;
 
 		anon_vma_lock_read(anon_vma);
-		anon_vma_interval_tree_foreach(vmac, &anon_vma->rb_root,
-					       0, ULONG_MAX) {
+		node = (struct lockfree_list_node *)get_unmarked_ref((long)anon_vma->head_node.next);
+		onode = anon_vma->head_node.next;
+		pr_info("anon_vma_lock_read : [%s]\n", __func__);
+		lockfree_list_for_each_entry(vmac, node, same_anon_vma, onode) {
+			if (&vmac->same_anon_vma == &anon_vma->tail_node)
+				break;
+			if (is_marked_ref((long)onode))
+				continue;
 			vma = vmac->vma;
 			if (rmap_item->address < vma->vm_start ||
 			    rmap_item->address >= vma->vm_end)
@@ -1936,14 +1945,17 @@ again:
 			ret = rwc->rmap_one(page, vma,
 					rmap_item->address, rwc->arg);
 			if (ret != SWAP_AGAIN) {
+				pr_info("anon_vma_unlock_read : [%s]\n", __func__);
 				anon_vma_unlock_read(anon_vma);
 				goto out;
 			}
 			if (rwc->done && rwc->done(page)) {
+				pr_info("anon_vma_unlock_read : [%s]\n", __func__);
 				anon_vma_unlock_read(anon_vma);
 				goto out;
 			}
 		}
+		pr_info("anon_vma_unlock_read : [%s]\n", __func__);
 		anon_vma_unlock_read(anon_vma);
 	}
 	if (!search_new_forks++)

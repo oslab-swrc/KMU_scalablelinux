@@ -61,6 +61,7 @@
 #include <linux/string.h>
 #include <linux/dma-debug.h>
 #include <linux/debugfs.h>
+#include <linux/lockfree_list.h>
 
 #include <asm/io.h>
 #include <asm/pgalloc.h>
@@ -525,6 +526,8 @@ void free_pgd_range(struct mmu_gather *tlb,
 	} while (pgd++, addr = next, addr != end);
 }
 
+
+extern void free_anon_vma_chain(void);
 void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
 		unsigned long floor, unsigned long ceiling)
 {
@@ -558,6 +561,7 @@ void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
 		}
 		vma = next;
 	}
+	free_anon_vma_chain();
 }
 
 int __pte_alloc(struct mm_struct *mm, struct vm_area_struct *vma,
@@ -1302,9 +1306,11 @@ static void unmap_single_vma(struct mmu_gather *tlb,
 			 * safe to do nothing in this case.
 			 */
 			if (vma->vm_file) {
-				i_mmap_lock_write(vma->vm_file->f_mapping);
+				i_mmap_lock_read(vma->vm_file->f_mapping);
+				pr_info("i_mmap write lock : %s\n", __func__);
 				__unmap_hugepage_range_final(tlb, vma, start, end, NULL);
-				i_mmap_unlock_write(vma->vm_file->f_mapping);
+				pr_debug("i_mmap write unlock : %s\n", __func__);
+				i_mmap_unlock_read(vma->vm_file->f_mapping);
 			}
 		} else
 			unmap_page_range(tlb, vma, start, end, details);
@@ -2360,15 +2366,19 @@ static void unmap_mapping_range_vma(struct vm_area_struct *vma,
 	zap_page_range_single(vma, start_addr, end_addr - start_addr, details);
 }
 
-static inline void unmap_mapping_range_tree(struct rb_root *root,
+static inline void unmap_mapping_range_linear_list(struct lockfree_list_head *head,
 					    struct zap_details *details)
 {
 	struct vm_area_struct *vma;
 	pgoff_t vba, vea, zba, zea;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)head->head->next);
+	struct lockfree_list_node *onode = head->head->next;
 
-	vma_interval_tree_foreach(vma, root,
-			details->first_index, details->last_index) {
-
+	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
+		if (&vma->shared.linear == head->tail)
+			break;
+		if (is_marked_ref((long)onode))
+			continue;
 		vba = vma->vm_pgoff;
 		vea = vba + vma_pages(vma) - 1;
 		/* Assume for now that PAGE_CACHE_SHIFT == PAGE_SHIFT */
@@ -2380,9 +2390,10 @@ static inline void unmap_mapping_range_tree(struct rb_root *root,
 			zea = vea;
 
 		unmap_mapping_range_vma(vma,
-			((zba - vba) << PAGE_SHIFT) + vma->vm_start,
-			((zea - vba + 1) << PAGE_SHIFT) + vma->vm_start,
+				((zba - vba) << PAGE_SHIFT) + vma->vm_start,
+				((zea - vba + 1) << PAGE_SHIFT) + vma->vm_start,
 				details);
+
 	}
 }
 
@@ -2425,11 +2436,12 @@ void unmap_mapping_range(struct address_space *mapping,
 		details.last_index = ULONG_MAX;
 
 
-	/* DAX uses i_mmap_lock to serialise file truncate vs page fault */
-	i_mmap_lock_write(mapping);
-	if (unlikely(!RB_EMPTY_ROOT(&mapping->i_mmap)))
-		unmap_mapping_range_tree(&mapping->i_mmap, &details);
-	i_mmap_unlock_write(mapping);
+	i_mmap_lock_read(mapping);
+	pr_info("i_mmap write lock : %s\n", __func__);
+	if (unlikely(!lockfree_list_empty(&mapping->i_mmap)))
+		unmap_mapping_range_linear_list(&mapping->i_mmap, &details);
+	pr_debug("i_mmap write unlock : %s\n", __func__);
+	i_mmap_unlock_read(mapping);
 }
 EXPORT_SYMBOL(unmap_mapping_range);
 

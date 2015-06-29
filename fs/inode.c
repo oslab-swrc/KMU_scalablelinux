@@ -19,6 +19,7 @@
 #include <linux/ratelimit.h>
 #include <linux/list_lru.h>
 #include <trace/events/writeback.h>
+#include <linux/lockfree_list.h>
 #include "internal.h"
 
 /*
@@ -340,10 +341,11 @@ void address_space_init_once(struct address_space *mapping)
 	memset(mapping, 0, sizeof(*mapping));
 	INIT_RADIX_TREE(&mapping->page_tree, GFP_ATOMIC);
 	spin_lock_init(&mapping->tree_lock);
-	init_rwsem(&mapping->i_mmap_rwsem);
+	rwlock_init(&mapping->i_mmap_rwsem);
 	INIT_LIST_HEAD(&mapping->private_list);
 	spin_lock_init(&mapping->private_lock);
-	mapping->i_mmap = RB_ROOT;
+	init_lockfree_list_head(&mapping->i_mmap, &mapping->i_mmap_head_node,
+				&mapping->i_mmap_tail_node);
 }
 EXPORT_SYMBOL(address_space_init_once);
 
