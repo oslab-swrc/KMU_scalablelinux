@@ -277,10 +277,7 @@ struct vm_area_struct {
 	 * linkage of vma in the address_space->i_mmap_nonlinear list.
 	 */
 	union {
-		struct {
-			struct rb_node rb;
-			unsigned long rb_subtree_last;
-		} linear;
+		struct list_head linear;
 		struct list_head nonlinear;
 	} shared;
 

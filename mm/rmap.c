@@ -1735,7 +1735,7 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 
 	pgoff = page_to_pgoff(page);
 	i_mmap_lock_read(mapping);
-	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
+	list_for_each_entry(vma, &mapping->i_mmap, shared.linear) {
 		unsigned long address = vma_address(page, vma);
 
 		if (rwc->invalid_vma && rwc->invalid_vma(vma, rwc->arg))
