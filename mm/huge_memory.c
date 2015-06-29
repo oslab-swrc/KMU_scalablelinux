@@ -23,6 +23,7 @@
 #include <linux/pagemap.h>
 #include <linux/migrate.h>
 #include <linux/hashtable.h>
+#include <linux/lockfree_list.h>
 
 #include <asm/tlb.h>
 #include <asm/pgalloc.h>
@@ -1834,16 +1835,23 @@ static void __split_huge_page(struct page *page,
 			      struct list_head *list)
 {
 	int mapcount, mapcount2;
-	pgoff_t pgoff = page->index << (PAGE_CACHE_SHIFT - PAGE_SHIFT);
 	struct anon_vma_chain *avc;
+	struct lockfree_list_node *onode = anon_vma->head_node.next;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)anon_vma->head_node.next);
 
 	BUG_ON(!PageHead(page));
 	BUG_ON(PageTail(page));
 
 	mapcount = 0;
-	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff, pgoff) {
-		struct vm_area_struct *vma = avc->vma;
-		unsigned long addr = vma_address(page, vma);
+	lockfree_list_for_each_entry(avc, node, same_anon_vma, onode) {
+		struct vm_area_struct *vma;
+		unsigned long addr;
+		if (&avc->same_anon_vma == &anon_vma->tail_node)
+			break;
+		if (is_marked_ref((long)onode))
+			continue;
+		vma = avc->vma;
+		addr = vma_address(page, vma);
 		BUG_ON(is_vma_temporary_stack(vma));
 		mapcount += __split_huge_page_splitting(page, vma, addr);
 	}
@@ -1866,9 +1874,17 @@ static void __split_huge_page(struct page *page,
 	__split_huge_page_refcount(page, list);
 
 	mapcount2 = 0;
-	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff, pgoff) {
-		struct vm_area_struct *vma = avc->vma;
-		unsigned long addr = vma_address(page, vma);
+	onode = anon_vma->head_node.next;
+	node = (struct lockfree_list_node *)get_unmarked_ref((long)anon_vma->head_node.next);
+	lockfree_list_for_each_entry(avc, node, same_anon_vma, onode) {
+		struct vm_area_struct *vma;
+		unsigned long addr;
+		if (&avc->same_anon_vma == &anon_vma->tail_node)
+			break;
+		if (is_marked_ref((long)onode))
+			continue;
+		vma = avc->vma;
+		addr = vma_address(page, vma);
 		BUG_ON(is_vma_temporary_stack(vma));
 		mapcount2 += __split_huge_page_map(page, vma, addr);
 	}
@@ -2485,6 +2501,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 		goto out;
 
 	anon_vma_lock_write(vma->anon_vma);
+	pr_debug("anon_vma_lock_write : [%s]\n", __func__);
 
 	pte = pte_offset_map(pmd, address);
 	pte_ptl = pte_lockptr(mm, pmd);
@@ -2519,6 +2536,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 		pmd_populate(mm, pmd, pmd_pgtable(_pmd));
 		spin_unlock(pmd_ptl);
 		anon_vma_unlock_write(vma->anon_vma);
+		pr_debug("anon_vma_unlock_write : [%s]\n", __func__);
 		goto out;
 	}
 
@@ -2526,6 +2544,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 	 * All pages are isolated and locked so anon_vma rmap
 	 * can't run anymore.
 	 */
+	pr_debug("anon_vma_unlock_write : [%s]\n", __func__);
 	anon_vma_unlock_write(vma->anon_vma);
 
 	__collapse_huge_page_copy(pte, new_page, vma, address, pte_ptl);

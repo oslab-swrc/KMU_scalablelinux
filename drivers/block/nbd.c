@@ -39,6 +39,7 @@
 
 #include <linux/nbd.h>
 
+#if 0
 struct nbd_device {
 	int flags;
 	int harderror;		/* Code of hard error			*/
@@ -60,6 +61,7 @@ struct nbd_device {
 	int xmit_timeout;
 	int disconnect; /* a disconnect has been requested by user */
 };
+#endif
 
 #define NBD_MAGIC 0x68797548
 
