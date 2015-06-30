@@ -674,16 +674,12 @@ static void vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
 {
 	struct address_space *mapping = NULL;
 
+	__vma_link(mm, vma, prev, rb_link, rb_parent);
 	if (vma->vm_file) {
 		mapping = vma->vm_file->f_mapping;
 		i_mmap_lock_write(mapping);
 		pr_debug("i_mmap write lock : %s\n", __func__);
-	}
-
-	__vma_link(mm, vma, prev, rb_link, rb_parent);
-	__vma_link_file(vma);
-
-	if (mapping) {
+		__vma_link_file(vma);
 		pr_debug("i_mmap write unlock : %s\n", __func__);
 		i_mmap_unlock_write(mapping);
 	}
