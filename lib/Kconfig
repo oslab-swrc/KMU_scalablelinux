@@ -334,6 +334,10 @@ config TEXTSEARCH_FSM
 config BTREE
 	boolean
 
+config LOCKFREE_LIST
+	boolean
+	default y
+
 config INTERVAL_TREE
 	boolean
 	help
