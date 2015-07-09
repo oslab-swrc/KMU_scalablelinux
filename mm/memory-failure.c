@@ -434,14 +434,13 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 	for_each_process (tsk) {
 		struct anon_vma_chain *vmac;
 		struct task_struct *t = task_early_kill(tsk, force_early);
-		struct lockfree_list_node *node = &av->head_node;
+		struct lockfree_list_node *node = av->head_node.next;
 
 		if (!t)
 			continue;
 		lockfree_list_for_each_entry(vmac, node, same_anon_vma) {
-			if (&vmac->same_anon_vma == &av->head_node ||
-					&vmac->same_anon_vma == &av->tail_node)
-				continue;
+			if (&vmac->same_anon_vma == &av->tail_node)
+				break;
 
 			vma = vmac->vma;
 			if (!page_mapped_in_vma(page, vma))

@@ -3025,7 +3025,9 @@ static DEFINE_MUTEX(mm_all_locks_mutex);
 
 static void vm_lock_anon_vma(struct mm_struct *mm, struct anon_vma *anon_vma)
 {
-	if (!test_bit(0, (unsigned long *) &anon_vma->root->head_node.next)) {
+		down_write_nest_lock(&anon_vma->root->rwsem, &mm->mmap_sem);
+    return;
+        if (!test_bit(0, (unsigned long *) &anon_vma->root->head_node.next)) {
 		/*
 		 * The LSB of head.next can't change from under us
 		 * because we hold the mm_all_locks_mutex.
@@ -3116,12 +3118,11 @@ int mm_take_all_locks(struct mm_struct *mm)
 		if (signal_pending(current))
 			goto out_unlock;
 		if (vma->anon_vma) {
-			struct lockfree_list_node *node = &vma->anon_vma_chain_head_node;
+			struct lockfree_list_node *node = vma->anon_vma_chain_head_node.next;
 
 			lockfree_list_for_each_entry(avc, node, same_vma) {
-				if (&avc->same_vma == &vma->anon_vma_chain_head_node ||
-						&avc->same_vma == &vma->anon_vma_chain_tail_node)
-					continue;
+				if (&avc->same_vma == &vma->anon_vma_chain_tail_node)
+					break;
 				vm_lock_anon_vma(mm, avc->anon_vma);
 			}
 		}
@@ -3136,6 +3137,8 @@ out_unlock:
 
 static void vm_unlock_anon_vma(struct anon_vma *anon_vma)
 {
+		anon_vma_unlock_write(anon_vma);
+        return;
 	if (test_bit(0, (unsigned long *) &anon_vma->root->head_node.next)) {
 		/*
 		 * The LSB of head.next can't change to 0 from under
@@ -3184,11 +3187,10 @@ void mm_drop_all_locks(struct mm_struct *mm)
 
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {
 		if (vma->anon_vma) {
-			struct lockfree_list_node *node = &vma->anon_vma_chain_head_node;
+			struct lockfree_list_node *node = vma->anon_vma_chain_head_node.next;
 			lockfree_list_for_each_entry(avc, node, same_vma) {
-				if (&avc->same_vma == &vma->anon_vma_chain_head_node ||
-						&avc->same_vma == &vma->anon_vma_chain_tail_node)
-					continue;
+				if (&avc->same_vma == &vma->anon_vma_chain_tail_node)
+					break;
 				vm_unlock_anon_vma(avc->anon_vma);
 			}
 		}
