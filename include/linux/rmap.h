@@ -9,6 +9,7 @@
 #include <linux/mm.h>
 #include <linux/rwsem.h>
 #include <linux/memcontrol.h>
+#include <linux/lockfree_list.h>
 
 /*
  * The anon_vma heads a list of private "related" vmas, to scan if
@@ -54,7 +55,9 @@ struct anon_vma {
 	 * is serialized by a system wide lock only visible to
 	 * mm_take_all_locks() (mm_all_locks_mutex).
 	 */
-	struct list_head head;
+	struct lockfree_list_head	head;
+	struct lockfree_list_node	head_node;
+	struct lockfree_list_node	tail_node;
 };
 
 /*
@@ -73,8 +76,8 @@ struct anon_vma {
 struct anon_vma_chain {
 	struct vm_area_struct *vma;
 	struct anon_vma *anon_vma;
-	struct list_head same_vma;   /* locked by mmap_sem & page_table_lock */
-	struct list_head same_anon_vma; /* locked by anon_vma->mutex */
+	struct lockfree_list_node same_vma; /* locked by mmap_sem & page_table_lock */
+	struct lockfree_list_node same_anon_vma; /* locked by anon_vma->mutex */
 #ifdef CONFIG_DEBUG_VM_RB
 	unsigned long cached_vma_start, cached_vma_last;
 #endif

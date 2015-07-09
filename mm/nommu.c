@@ -1295,7 +1295,8 @@ unsigned long do_mmap_pgoff(struct file *file,
 	region->vm_flags = vm_flags;
 	region->vm_pgoff = pgoff;
 
-	INIT_LIST_HEAD(&vma->anon_vma_chain);
+	init_lockfree_list_head(&vma->anon_vma_chain, &vma->anon_vma_chain_head_node,
+			&vma->anon_vma_chain_tail_node);
 	vma->vm_flags = vm_flags;
 	vma->vm_pgoff = pgoff;
 

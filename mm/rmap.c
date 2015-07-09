@@ -57,6 +57,7 @@
 #include <linux/migrate.h>
 #include <linux/hugetlb.h>
 #include <linux/backing-dev.h>
+#include <linux/lockfree_list.h>
 
 #include <asm/tlbflush.h>
 
@@ -130,8 +131,10 @@ static void anon_vma_chain_link(struct vm_area_struct *vma,
 {
 	avc->vma = vma;
 	avc->anon_vma = anon_vma;
-	list_add(&avc->same_vma, &vma->anon_vma_chain);
-	list_add_tail(&avc->same_anon_vma, &anon_vma->head);
+	LOCKFREE_LIST_SAVE_KEY(avc, same_vma);
+	lockfree_list_add(&avc->same_vma, &vma->anon_vma_chain);
+	LOCKFREE_LIST_SAVE_KEY(avc, same_anon_vma);
+	lockfree_list_add(&avc->same_anon_vma, &anon_vma->head);
 }
 
 /**
@@ -253,10 +256,13 @@ int anon_vma_clone(struct vm_area_struct *dst, struct vm_area_struct *src)
 {
 	struct anon_vma_chain *avc, *pavc;
 	struct anon_vma *root = NULL;
+	struct lockfree_list_node *node = &src->anon_vma_chain_head_node;
 
-	list_for_each_entry_reverse(pavc, &src->anon_vma_chain, same_vma) {
+	lockfree_list_for_each_entry(pavc, node, same_vma) {
 		struct anon_vma *anon_vma;
-
+		if (&pavc->same_vma == &src->anon_vma_chain_head_node ||
+					&pavc->same_vma == &src->anon_vma_chain_tail_node)
+			continue;
 		avc = anon_vma_chain_alloc(GFP_NOWAIT | __GFP_NOWARN);
 		if (unlikely(!avc)) {
 			unlock_anon_vma_root(root);
@@ -361,45 +367,53 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 {
 	struct anon_vma_chain *avc, *next;
 	struct anon_vma *root = NULL;
+	struct lockfree_list_node *node = &vma->anon_vma_chain_head_node;
 
 	/*
 	 * Unlink each anon_vma chained to the VMA.  This list is ordered
 	 * from newest to oldest, ensuring the root anon_vma gets freed last.
 	 */
-	list_for_each_entry_safe(avc, next, &vma->anon_vma_chain, same_vma) {
+	lockfree_list_for_each_entry_safe(avc, next, node, same_vma) {
 		struct anon_vma *anon_vma = avc->anon_vma;
 
+		if (&avc->same_vma == &vma->anon_vma_chain_head_node ||
+					&avc->same_vma == &vma->anon_vma_chain_tail_node)
+			continue;
+
 		root = lock_anon_vma_root(root, anon_vma);
-		list_del(&avc->same_anon_vma);
+		lockfree_list_del(&avc->same_anon_vma, &anon_vma->head);
 
 		/*
 		 * Leave empty anon_vmas on the list - we'll need
 		 * to free them outside the lock.
 		 */
-		if (list_empty(&anon_vma->head)) {
+		if (lockfree_list_empty(&anon_vma->head)) {
 			anon_vma->parent->degree--;
 			continue;
 		}
 
-		list_del(&avc->same_vma);
+		lockfree_list_del(&avc->same_vma, &vma->anon_vma_chain);
 		anon_vma_chain_free(avc);
 	}
-	if (vma->anon_vma)
+	if (vma->anon_vma) {
 		vma->anon_vma->degree--;
+	}
 	unlock_anon_vma_root(root);
-
 	/*
 	 * Iterate the list once more, it now only contains empty and unlinked
 	 * anon_vmas, destroy them. Could not do before due to __put_anon_vma()
 	 * needing to write-acquire the anon_vma->root->rwsem.
 	 */
-	list_for_each_entry_safe(avc, next, &vma->anon_vma_chain, same_vma) {
+	lockfree_list_for_each_entry_safe(avc, next, node, same_vma) {
 		struct anon_vma *anon_vma = avc->anon_vma;
+		if (&avc->same_vma == &vma->anon_vma_chain_head_node ||
+					&avc->same_vma == &vma->anon_vma_chain_tail_node)
+			continue;
 
 		BUG_ON(anon_vma->degree);
 		put_anon_vma(anon_vma);
 
-		list_del(&avc->same_vma);
+		lockfree_list_del(&avc->same_vma, &vma->anon_vma_chain);
 		anon_vma_chain_free(avc);
 	}
 }
@@ -410,7 +424,9 @@ static void anon_vma_ctor(void *data)
 
 	init_rwsem(&anon_vma->rwsem);
 	atomic_set(&anon_vma->refcount, 0);
-	INIT_LIST_HEAD(&anon_vma->head);
+
+	init_lockfree_list_head(&anon_vma->head, &anon_vma->head_node,
+			&anon_vma->tail_node);
 }
 
 void __init anon_vma_init(void)
@@ -1678,14 +1694,20 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 	struct anon_vma *anon_vma;
 	struct anon_vma_chain *avc;
 	int ret = SWAP_AGAIN;
+	struct lockfree_list_node *node;
 
 	anon_vma = rmap_walk_anon_lock(page, rwc);
 	if (!anon_vma)
 		return ret;
+	node = &anon_vma->head_node;
 
-	list_for_each_entry(avc, &anon_vma->head, same_anon_vma) {
+	lockfree_list_for_each_entry(avc, node, same_anon_vma) {
 		struct vm_area_struct *vma = avc->vma;
 		unsigned long address = vma_address(page, vma);
+
+		if (&avc->same_anon_vma == &anon_vma->head_node ||
+					&avc->same_anon_vma == &anon_vma->tail_node)
+			continue;
 
 		if (rwc->invalid_vma && rwc->invalid_vma(vma, rwc->arg))
 			continue;

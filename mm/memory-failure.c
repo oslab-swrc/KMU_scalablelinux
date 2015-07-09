@@ -55,6 +55,7 @@
 #include <linux/memory_hotplug.h>
 #include <linux/mm_inline.h>
 #include <linux/kfifo.h>
+#include <linux/lockfree_list.h>
 #include "internal.h"
 
 int sysctl_memory_failure_early_kill __read_mostly = 0;
@@ -433,10 +434,15 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 	for_each_process (tsk) {
 		struct anon_vma_chain *vmac;
 		struct task_struct *t = task_early_kill(tsk, force_early);
+		struct lockfree_list_node *node = &av->head_node;
 
 		if (!t)
 			continue;
-		list_for_each_entry(vmac, &av->head, same_anon_vma) {
+		lockfree_list_for_each_entry(vmac, node, same_anon_vma) {
+			if (&vmac->same_anon_vma == &av->head_node ||
+					&vmac->same_anon_vma == &av->tail_node)
+				continue;
+
 			vma = vmac->vma;
 			if (!page_mapped_in_vma(page, vma))
 				continue;

@@ -74,6 +74,7 @@
 #include <linux/uprobes.h>
 #include <linux/aio.h>
 #include <linux/compiler.h>
+#include <linux/lockfree_list.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -416,7 +417,8 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 		if (!tmp)
 			goto fail_nomem;
 		*tmp = *mpnt;
-		INIT_LIST_HEAD(&tmp->anon_vma_chain);
+		init_lockfree_list_head(&tmp->anon_vma_chain, &tmp->anon_vma_chain_head_node,
+				&tmp->anon_vma_chain_tail_node);
 		retval = vma_dup_policy(mpnt, tmp);
 		if (retval)
 			goto fail_nomem_policy;

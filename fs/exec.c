@@ -56,6 +56,7 @@
 #include <linux/pipe_fs_i.h>
 #include <linux/oom.h>
 #include <linux/compat.h>
+#include <linux/lockfree_list.h>
 
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -270,7 +271,8 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 	vma->vm_start = vma->vm_end - PAGE_SIZE;
 	vma->vm_flags = VM_SOFTDIRTY | VM_STACK_FLAGS | VM_STACK_INCOMPLETE_SETUP;
 	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
-	INIT_LIST_HEAD(&vma->anon_vma_chain);
+	init_lockfree_list_head(&vma->anon_vma_chain, &vma->anon_vma_chain_head_node,
+			&vma->anon_vma_chain_tail_node);
 
 	err = insert_vm_struct(mm, vma);
 	if (err)

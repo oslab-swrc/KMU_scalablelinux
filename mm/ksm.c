@@ -37,6 +37,7 @@
 #include <linux/freezer.h>
 #include <linux/oom.h>
 #include <linux/numa.h>
+#include <linux/lockfree_list.h>
 
 #include <asm/tlbflush.h>
 #include "internal.h"
@@ -1913,9 +1914,13 @@ again:
 		struct anon_vma *anon_vma = rmap_item->anon_vma;
 		struct anon_vma_chain *vmac;
 		struct vm_area_struct *vma;
+		struct lockfree_list_node *node = &anon_vma->head_node;
 
 		anon_vma_lock_read(anon_vma);
-		list_for_each_entry(vmac, &anon_vma->head, same_anon_vma) {
+		lockfree_list_for_each_entry(vmac, node, same_anon_vma) {
+			if (&vmac->same_anon_vma == &anon_vma->head_node ||
+					&vmac->same_anon_vma == &anon_vma->tail_node)
+				continue;
 			vma = vmac->vma;
 			if (rmap_item->address < vma->vm_start ||
 			    rmap_item->address >= vma->vm_end)

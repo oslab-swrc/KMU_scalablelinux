@@ -80,4 +80,14 @@ static inline struct lockfree_list_node *lockfree_list_del(
 	return lockfree_list_del_batch(node, head);
 }
 
+/**
+ * list_is_singular - tests whether a list has just one entry.
+ * @head: the list to test.
+ */
+static inline int lockfree_list_is_singular(const struct lockfree_list_head *head)
+{
+	return !lockfree_list_empty(head) && (head->head->next->next == head->tail);
+}
+
+
 #endif /* #ifndef _LOCKFREE_LIST_H_ */
