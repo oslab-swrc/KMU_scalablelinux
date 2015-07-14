@@ -788,8 +788,10 @@ again:			remove_next = 1 + (end > next->vm_end);
 			  anon_vma != next->anon_vma, next);
 	} else if (adjust_next && next->anon_vma)
 	    anon_vma = next->anon_vma;
-	if (anon_vma)
+	if (anon_vma) {
 		anon_vma_lock_write(anon_vma);
+		pr_debug("anon_vma_lock_write: [%s]\n", __func__);
+	}
 
 	if (head) {
 		flush_dcache_mmap_lock(mapping);
@@ -846,6 +848,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 	}
 
 	if (anon_vma) {
+		pr_debug("anon_vma_unlock_write: [%s]\n", __func__);
 		anon_vma_unlock_write(anon_vma);
 	}
 
@@ -3025,9 +3028,7 @@ static DEFINE_MUTEX(mm_all_locks_mutex);
 
 static void vm_lock_anon_vma(struct mm_struct *mm, struct anon_vma *anon_vma)
 {
-		down_write_nest_lock(&anon_vma->root->rwsem, &mm->mmap_sem);
-    return;
-        if (!test_bit(0, (unsigned long *) &anon_vma->root->head_node.next)) {
+	if (!test_bit(0, (unsigned long *) &anon_vma->root->head_node.next)) {
 		/*
 		 * The LSB of head.next can't change from under us
 		 * because we hold the mm_all_locks_mutex.
@@ -3137,8 +3138,6 @@ out_unlock:
 
 static void vm_unlock_anon_vma(struct anon_vma *anon_vma)
 {
-		anon_vma_unlock_write(anon_vma);
-        return;
 	if (test_bit(0, (unsigned long *) &anon_vma->root->head_node.next)) {
 		/*
 		 * The LSB of head.next can't change to 0 from under

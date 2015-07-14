@@ -524,6 +524,8 @@ void free_pgd_range(struct mmu_gather *tlb,
 	} while (pgd++, addr = next, addr != end);
 }
 
+
+extern void free_anon_vma_chain(void);
 void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
 		unsigned long floor, unsigned long ceiling)
 {
@@ -557,6 +559,7 @@ void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
 		}
 		vma = next;
 	}
+	free_anon_vma_chain();
 }
 
 int __pte_alloc(struct mm_struct *mm, struct vm_area_struct *vma,

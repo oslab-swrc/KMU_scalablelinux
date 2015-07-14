@@ -1917,6 +1917,7 @@ again:
 		struct lockfree_list_node *node = anon_vma->head_node.next;
 
 		anon_vma_lock_read(anon_vma);
+		pr_info("anon_vma_lock_read : [%s]\n", __func__);
 		lockfree_list_for_each_entry(vmac, node, same_anon_vma) {
 			if (&vmac->same_anon_vma == &anon_vma->tail_node)
 				break;
@@ -1939,14 +1940,17 @@ again:
 			ret = rwc->rmap_one(page, vma,
 					rmap_item->address, rwc->arg);
 			if (ret != SWAP_AGAIN) {
+				pr_info("anon_vma_unlock_read : [%s]\n", __func__);
 				anon_vma_unlock_read(anon_vma);
 				goto out;
 			}
 			if (rwc->done && rwc->done(page)) {
+				pr_info("anon_vma_unlock_read : [%s]\n", __func__);
 				anon_vma_unlock_read(anon_vma);
 				goto out;
 			}
 		}
+		pr_info("anon_vma_unlock_read : [%s]\n", __func__);
 		anon_vma_unlock_read(anon_vma);
 	}
 	if (!search_new_forks++)

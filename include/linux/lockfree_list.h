@@ -11,6 +11,7 @@ struct lockfree_list_head {
 struct lockfree_list_node {
     struct lockfree_list_node *next;
     void *key;
+    int garbage;
 };
 
 #define LOCKFREE_LIST_HEAD_INIT(name)   { NULL, NULL }
@@ -28,12 +29,18 @@ struct lockfree_list_node {
 #define LOCKFREE_LIST_SAVE_KEY(name, member) \
 		(name)->member.key = (void *)(name)
 
+#define LOCKFREE_LIST_CLEAR_GC(name, member) \
+		(name)->member.garbage = 0
+
 static inline void init_lockfree_list_head(struct lockfree_list_head *list,
         struct lockfree_list_node *head, struct lockfree_list_node *tail)
 {
-    head->next = tail;
-    list->head = head;
-    list->tail = tail;
+	tail->key = (void *)LONG_MAX;
+	tail->next = NULL;
+	head->key = 0;
+	head->next = tail;
+	list->head = head;
+	list->tail = tail;
 }
 
 #define lockfree_list_entry(ptr, type, member)      \

@@ -5,6 +5,7 @@
  */
 
 #include <linux/list.h>
+#include <linux/llist.h>
 #include <linux/slab.h>
 #include <linux/mm.h>
 #include <linux/rwsem.h>
@@ -43,7 +44,7 @@ struct anon_vma {
 	 * This counter is used for making decision about reusing anon_vma
 	 * instead of forking new one. See comments in function anon_vma_clone.
 	 */
-	unsigned degree;
+	atomic_t degree;
 
 	struct anon_vma *parent;	/* Parent of this anon_vma */
 
@@ -76,6 +77,7 @@ struct anon_vma {
 struct anon_vma_chain {
 	struct vm_area_struct *vma;
 	struct anon_vma *anon_vma;
+	struct llist_node llnode; /* delayed free */
 	struct lockfree_list_node same_vma; /* locked by mmap_sem & page_table_lock */
 	struct lockfree_list_node same_anon_vma; /* locked by anon_vma->mutex */
 #ifdef CONFIG_DEBUG_VM_RB
