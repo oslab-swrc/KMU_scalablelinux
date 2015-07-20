@@ -1768,6 +1768,7 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 	pgoff_t pgoff;
 	struct vm_area_struct *vma;
 	int ret = SWAP_AGAIN;
+	struct lockfree_list_node *node = mapping->i_mmap_head_node.next;
 
 	/*
 	 * The page lock not only makes sure that page->mapping cannot
@@ -1782,9 +1783,12 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 
 	pgoff = page_to_pgoff(page);
 	i_mmap_lock_read(mapping);
-	pr_debug("i_mmap read lock : %s\n", __func__);
-	list_for_each_entry(vma, &mapping->i_mmap, shared.linear) {
-		unsigned long address = vma_address(page, vma);
+	pr_info("i_mmap read lock : %s\n", __func__);
+	lockfree_list_for_each_entry(vma, node, shared.linear) {
+		unsigned long address;
+		if (&vma->shared.linear == &mapping->i_mmap_tail_node)
+			break;
+		address = vma_address(page, vma);
 
 		if (rwc->invalid_vma && rwc->invalid_vma(vma, rwc->arg))
 			continue;

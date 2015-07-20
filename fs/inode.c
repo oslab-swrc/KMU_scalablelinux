@@ -18,6 +18,7 @@
 #include <linux/buffer_head.h> /* for inode_has_buffers */
 #include <linux/ratelimit.h>
 #include <linux/list_lru.h>
+#include <linux/lockfree_list.h>
 #include "internal.h"
 
 /*
@@ -354,7 +355,8 @@ void address_space_init_once(struct address_space *mapping)
 	init_rwsem(&mapping->i_mmap_rwsem);
 	INIT_LIST_HEAD(&mapping->private_list);
 	spin_lock_init(&mapping->private_lock);
-	INIT_LIST_HEAD(&mapping->i_mmap);
+	init_lockfree_list_head(&mapping->i_mmap, &mapping->i_mmap_head_node,
+				&mapping->i_mmap_tail_node);
 	INIT_LIST_HEAD(&mapping->i_mmap_nonlinear);
 }
 EXPORT_SYMBOL(address_space_init_once);

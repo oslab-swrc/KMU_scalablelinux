@@ -42,6 +42,7 @@
 #include <linux/memory.h>
 #include <linux/printk.h>
 #include <linux/lockfree_list.h>
+#include <linux/llist.h>
 
 #include <asm/uaccess.h>
 #include <asm/cacheflush.h>
@@ -57,6 +58,9 @@
 #ifndef arch_rebalance_pgtables
 #define arch_rebalance_pgtables(addr, len)		(addr)
 #endif
+
+static struct work_struct i_mmap_free_wq;
+static LLIST_HEAD(i_mmap_freelist);
 
 static void unmap_region(struct mm_struct *mm,
 		struct vm_area_struct *vma, struct vm_area_struct *prev,
@@ -236,19 +240,26 @@ error:
  * Requires inode->i_mapping->i_mmap_rwsem
  */
 static void __remove_shared_vm_struct(struct vm_area_struct *vma,
-		struct file *file, struct address_space *mapping)
+		struct file *file, struct address_space *mapping, int need_lock)
 {
+
+	flush_dcache_mmap_lock(mapping);
+	if (unlikely(vma->vm_flags & VM_NONLINEAR)) {
+		if (need_lock)
+			i_mmap_lock_write(mapping);
+		list_del_init(&vma->shared.nonlinear);
+		if (need_lock)
+			i_mmap_unlock_write(mapping);
+	} else {
+		lockfree_list_del(&vma->shared.linear, &mapping->i_mmap);
+	}
+	flush_dcache_mmap_unlock(mapping);
+
 	if (vma->vm_flags & VM_DENYWRITE)
-		atomic_inc(&file_inode(file)->i_writecount);
+		allow_write_access(file);
 	if (vma->vm_flags & VM_SHARED)
 		mapping_unmap_writable(mapping);
 
-	flush_dcache_mmap_lock(mapping);
-	if (unlikely(vma->vm_flags & VM_NONLINEAR))
-		list_del_init(&vma->shared.nonlinear);
-	else
-		list_del_init(&vma->shared.linear);
-	flush_dcache_mmap_unlock(mapping);
 }
 
 /*
@@ -261,11 +272,28 @@ void unlink_file_vma(struct vm_area_struct *vma)
 
 	if (file) {
 		struct address_space *mapping = file->f_mapping;
-		i_mmap_lock_write(mapping);
-		pr_debug("i_mmap write lock : %s\n", __func__);
-		__remove_shared_vm_struct(vma, file, mapping);
+		//i_mmap_lock_write(mapping);
+		//pr_info("i_mmap write lock : %s\n", __func__);
+		__remove_shared_vm_struct(vma, file, mapping, 1);
 		pr_debug("i_mmap write unlock : %s\n", __func__);
-		i_mmap_unlock_write(mapping);
+		//i_mmap_unlock_write(mapping);
+	}
+}
+
+static void i_mmap_free_work_func(struct work_struct *w)
+{
+	struct llist_node *entry;
+	struct vm_area_struct *vma, *vma_next;
+
+	if (llist_empty(&i_mmap_freelist))
+		return;
+
+	entry = llist_del_all(&i_mmap_freelist);
+	llist_for_each_entry_safe(vma, vma_next, entry, llnode) {
+		if (vma->shared.linear.garbage || !vma->vm_file)
+			kmem_cache_free(vm_area_cachep, vma);
+		else
+			llist_add(&vma->llnode, &i_mmap_freelist);
 	}
 }
 
@@ -282,7 +310,8 @@ static struct vm_area_struct *remove_vma(struct vm_area_struct *vma)
 	if (vma->vm_file)
 		fput(vma->vm_file);
 	mpol_put(vma_policy(vma));
-	kmem_cache_free(vm_area_cachep, vma);
+	llist_add(&vma->llnode, &i_mmap_freelist);
+	//kmem_cache_free(vm_area_cachep, vma);
 	return next;
 }
 
@@ -606,7 +635,7 @@ void __vma_link_rb(struct mm_struct *mm, struct vm_area_struct *vma,
 	vma_rb_insert(vma, &mm->mm_rb);
 }
 
-static void __vma_link_file(struct vm_area_struct *vma)
+static void __vma_link_file(struct vm_area_struct *vma, int need_lock)
 {
 	struct file *file;
 
@@ -614,17 +643,22 @@ static void __vma_link_file(struct vm_area_struct *vma)
 	if (file) {
 		struct address_space *mapping = file->f_mapping;
 
-		if (vma->vm_flags & VM_DENYWRITE)
-			atomic_dec(&file_inode(file)->i_writecount);
-		if (vma->vm_flags & VM_SHARED)
-			atomic_inc(&mapping->i_mmap_writable);
-
 		flush_dcache_mmap_lock(mapping);
-		if (unlikely(vma->vm_flags & VM_NONLINEAR))
+		if (unlikely(vma->vm_flags & VM_NONLINEAR)) {
+			if (need_lock)
+				i_mmap_lock_write(mapping);
 			vma_nonlinear_insert(vma, &mapping->i_mmap_nonlinear);
-		else
+			if (need_lock)
+				i_mmap_unlock_write(mapping);
+		} else
 			vma_linear_insert(vma, &mapping->i_mmap);
 		flush_dcache_mmap_unlock(mapping);
+
+		if (vma->vm_flags & VM_DENYWRITE)
+			put_write_access(file_inode(file));
+		if (vma->vm_flags & VM_SHARED)
+			mapping_allow_writable(mapping);
+
 	}
 }
 
@@ -646,11 +680,11 @@ static void vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
 	__vma_link(mm, vma, prev, rb_link, rb_parent);
 	if (vma->vm_file) {
 		mapping = vma->vm_file->f_mapping;
-		i_mmap_lock_write(mapping);
-		pr_debug("i_mmap write lock : %s\n", __func__);
-		__vma_link_file(vma);
+		//i_mmap_lock_write(mapping);
+		//pr_info("i_mmap write lock : %s\n", __func__);
+		__vma_link_file(vma, 1);
 		pr_debug("i_mmap write unlock : %s\n", __func__);
-		i_mmap_unlock_write(mapping);
+		//i_mmap_unlock_write(mapping);
 	}
 	mm->map_count++;
 	validate_mm(mm);
@@ -701,7 +735,7 @@ int vma_adjust(struct vm_area_struct *vma, unsigned long start,
 	struct vm_area_struct *next = vma->vm_next;
 	struct vm_area_struct *importer = NULL;
 	struct address_space *mapping = NULL;
-	struct list_head *head = NULL;
+	struct lockfree_list_head *head = NULL;
 	struct anon_vma *anon_vma = NULL;
 	struct file *file = vma->vm_file;
 	bool start_changed = false, end_changed = false;
@@ -767,8 +801,8 @@ again:			remove_next = 1 + (end > next->vm_end);
 							next->vm_end);
 		}
 
-		i_mmap_lock_write(mapping);
-		pr_debug("i_mmap write lock : %s\n", __func__);
+		//i_mmap_lock_write(mapping);
+		//pr_info("i_mmap write lock : %s\n", __func__);
 		if (insert) {
 			/*
 			 * Put into interval tree now, so instantiated pages
@@ -776,7 +810,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 			 * throughout; but we cannot insert into address
 			 * space until vma start or end is updated.
 			 */
-			__vma_link_file(insert);
+			__vma_link_file(insert, 1);
 		}
 	}
 
@@ -795,9 +829,9 @@ again:			remove_next = 1 + (end > next->vm_end);
 
 	if (head) {
 		flush_dcache_mmap_lock(mapping);
-		list_del(&vma->shared.linear);
+		lockfree_list_del(&vma->shared.linear, head);
 		if (adjust_next)
-		    list_del(&next->shared.linear);
+			lockfree_list_del(&next->shared.linear, head);
 	}
 
 	if (start != vma->vm_start) {
@@ -828,7 +862,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 		 */
 		__vma_unlink(mm, next, vma);
 		if (file)
-			__remove_shared_vm_struct(next, file, mapping);
+			__remove_shared_vm_struct(next, file, mapping, 1);
 	} else if (insert) {
 		/*
 		 * split_vma has split insert from vma, and needs
@@ -854,7 +888,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 
 	if (mapping) {
 		pr_debug("i_mmap write unlock : %s\n", __func__);
-		i_mmap_unlock_write(mapping);
+		//i_mmap_unlock_write(mapping);
 	}
 	if (head) {
 		uprobe_mmap(vma);
@@ -872,7 +906,8 @@ again:			remove_next = 1 + (end > next->vm_end);
 			anon_vma_merge(vma, next);
 		mm->map_count--;
 		mpol_put(vma_policy(next));
-		kmem_cache_free(vm_area_cachep, next);
+		llist_add(&next->llnode, &i_mmap_freelist);
+	  //kmem_cache_free(vm_area_cachep, next);
 		/*
 		 * In mprotect's case 6 (see comments on vma_merge),
 		 * we must remove another next too. It would clutter
@@ -2357,6 +2392,7 @@ static void remove_vma_list(struct mm_struct *mm, struct vm_area_struct *vma)
 	} while (vma);
 	vm_unacct_memory(nr_accounted);
 	validate_mm(mm);
+	schedule_work(&i_mmap_free_wq);
 }
 
 /*
@@ -2758,6 +2794,7 @@ void exit_mmap(struct mm_struct *mm)
 			nr_accounted += vma_pages(vma);
 		vma = remove_vma(vma);
 	}
+	schedule_work(&i_mmap_free_wq);
 	vm_unacct_memory(nr_accounted);
 
 	WARN_ON(atomic_long_read(&mm->nr_ptes) >
@@ -3322,3 +3359,12 @@ static int __meminit init_reserve_notifier(void)
 	return 0;
 }
 subsys_initcall(init_reserve_notifier);
+
+static int __init i_mmap_init_wq(void)
+{
+	pr_info("i_mmap work queue initialize");
+	INIT_WORK(&i_mmap_free_wq, i_mmap_free_work_func);
+	return 0;
+}
+__initcall(i_mmap_init_wq);
+

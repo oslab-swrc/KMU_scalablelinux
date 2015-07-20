@@ -462,16 +462,19 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	struct vm_area_struct *vma;
 	struct task_struct *tsk;
 	struct address_space *mapping = page->mapping;
+	struct lockfree_list_node *node = mapping->i_mmap_head_node.next;
 
 	i_mmap_lock_read(mapping);
-	pr_debug("i_mmap read lock : %s\n", __func__);
+	pr_info("i_mmap read lock : %s\n", __func__);
 	read_lock(&tasklist_lock);
 	for_each_process(tsk) {
 		struct task_struct *t = task_early_kill(tsk, force_early);
 
 		if (!t)
 			continue;
-		list_for_each_entry(vma, &mapping->i_mmap, shared.linear) {
+		lockfree_list_for_each_entry(vma, node, shared.linear) {
+			if (&vma->shared.linear == &mapping->i_mmap_tail_node)
+				break;
 			/*
 			 * Send early kill signal to tasks where a vma covers
 			 * the page but the corrupted page is not necessarily

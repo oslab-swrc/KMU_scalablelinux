@@ -435,21 +435,22 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 			get_file(file);
 			if (tmp->vm_flags & VM_DENYWRITE)
 				atomic_dec(&inode->i_writecount);
-			i_mmap_lock_write(mapping);
-			pr_debug("i_mmap write lock : %s\n", __func__);
+			//pr_info("i_mmap write lock : %s\n", __func__);
+			//i_mmap_lock_write(mapping);
 			if (tmp->vm_flags & VM_SHARED)
 				atomic_inc(&mapping->i_mmap_writable);
 			flush_dcache_mmap_lock(mapping);
 			/* insert tmp into the share list, just after mpnt */
-			if (unlikely(tmp->vm_flags & VM_NONLINEAR))
+			if (unlikely(tmp->vm_flags & VM_NONLINEAR)) {
+				i_mmap_lock_write(mapping);
 				vma_nonlinear_insert(tmp,
 						&mapping->i_mmap_nonlinear);
-			else
+				i_mmap_unlock_write(mapping);
+			} else
 				vma_linear_insert(tmp,
 						&mapping->i_mmap);
 			flush_dcache_mmap_unlock(mapping);
-			pr_debug("i_mmap write unlock : %s\n", __func__);
-			i_mmap_unlock_write(mapping);
+			//i_mmap_unlock_write(mapping);
 		}
 
 		/*

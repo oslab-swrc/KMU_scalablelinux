@@ -20,6 +20,7 @@
 #include <asm/mmu_context.h>
 #include <asm/cacheflush.h>
 #include <asm/tlbflush.h>
+#include <linux/lockfree_list.h>
 
 #include "internal.h"
 
@@ -239,10 +240,10 @@ get_write_lock:
 			goto out_freed;
 		}
 		i_mmap_lock_write(mapping);
-		pr_debug("i_mmap write lock : %s\n", __func__);
+		pr_info("i_mmap write lock : %s\n", __func__);
 		flush_dcache_mmap_lock(mapping);
 		vma->vm_flags |= VM_NONLINEAR;
-		list_del(&vma->shared.linear);
+		lockfree_list_del(&vma->shared.linear, &mapping->i_mmap);
 		vma_nonlinear_insert(vma, &mapping->i_mmap_nonlinear);
 		flush_dcache_mmap_unlock(mapping);
 		pr_debug("i_mmap write unlock : %s\n", __func__);

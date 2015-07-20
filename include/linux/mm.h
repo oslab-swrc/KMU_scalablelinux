@@ -9,6 +9,7 @@
 #include <linux/gfp.h>
 #include <linux/bug.h>
 #include <linux/list.h>
+#include <linux/lockfree_list.h>
 #include <linux/mmzone.h>
 #include <linux/rbtree.h>
 #include <linux/atomic.h>
@@ -1758,9 +1759,13 @@ extern atomic_long_t mmap_pages_allocated;
 extern int nommu_shrink_inode_mappings(struct inode *, size_t, size_t);
 
 static inline void vma_linear_insert(struct vm_area_struct *vma,
-					struct list_head *list)
+					struct lockfree_list_head  *list)
 {
-	list_add_tail(&vma->shared.linear, list);
+	LOCKFREE_LIST_SAVE_KEY(vma, shared.linear);
+	LOCKFREE_LIST_CLEAR_GC(vma, shared.linear);
+	//pr_info("vma_linear_insert\n");
+	if (!lockfree_list_add(&vma->shared.linear, list))
+		pr_info("vma lockfree list add fail!!!\n");
 }
 
 static inline void vma_nonlinear_insert(struct vm_area_struct *vma,

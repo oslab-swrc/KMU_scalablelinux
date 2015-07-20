@@ -38,6 +38,7 @@
 #include <linux/task_work.h>
 #include <linux/shmem_fs.h>
 
+#include <linux/lockfree_list.h>
 #include <linux/uprobes.h>
 
 #define UINSNS_PER_PAGE			(PAGE_SIZE/UPROBE_XOL_SLOT_BYTES)
@@ -721,11 +722,14 @@ build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
 	struct map_info *prev = NULL;
 	struct map_info *info;
 	int more = 0;
+	struct lockfree_list_node *node = mapping->i_mmap_head_node.next;
 
  again:
 	i_mmap_lock_read(mapping);
-	pr_debug("i_mmap read lock : %s\n", __func__);
-	list_for_each_entry(vma, &mapping->i_mmap, shared.linear) {
+	pr_info("i_mmap read lock : %s\n", __func__);
+	lockfree_list_for_each_entry(vma, node, shared.linear) {
+		if (&vma->shared.linear == &mapping->i_mmap_tail_node)
+			break;
 		if (!valid_vma(vma, is_register))
 			continue;
 
@@ -755,7 +759,6 @@ build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
 		info->mm = vma->vm_mm;
 		info->vaddr = offset_to_vaddr(vma, offset);
 	}
-	pr_debug("i_mmap read unlock : %s\n", __func__);
 	i_mmap_unlock_read(mapping);
 
 	if (!more)

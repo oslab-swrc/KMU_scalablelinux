@@ -3,6 +3,7 @@
  * (C) Nadia Yvette Chambers, April 2004
  */
 #include <linux/list.h>
+#include <linux/lockfree_list.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/mm.h>
@@ -2762,6 +2763,7 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	struct vm_area_struct *iter_vma;
 	struct address_space *mapping;
 	pgoff_t pgoff;
+	struct lockfree_list_node *node;
 
 	/*
 	 * vm_pgoff is in PAGE_SIZE units, hence the different calculation
@@ -2771,6 +2773,7 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	pgoff = ((address - vma->vm_start) >> PAGE_SHIFT) +
 			vma->vm_pgoff;
 	mapping = file_inode(vma->vm_file)->i_mapping;
+	node = mapping->i_mmap_head_node.next;
 
 	/*
 	 * Take the mapping lock for the duration of the table walk. As
@@ -2778,8 +2781,10 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	 * __unmap_hugepage_range() is called as the lock is already held
 	 */
 	i_mmap_lock_write(mapping);
-	pr_debug("i_mmap write lock : %s\n", __func__);
-	list_for_each_entry(iter_vma, &mapping->i_mmap, shared.linear) {
+	pr_info("i_mmap write lock : %s\n", __func__);
+	lockfree_list_for_each_entry(iter_vma, node, shared.linear) {
+		if (&iter_vma->shared.linear == &mapping->i_mmap_tail_node)
+			break;
 		/* Do not unmap the current VMA */
 		if (iter_vma == vma)
 			continue;
@@ -3356,7 +3361,7 @@ unsigned long hugetlb_change_protection(struct vm_area_struct *vma,
 
 	mmu_notifier_invalidate_range_start(mm, start, end);
 	i_mmap_lock_write(vma->vm_file->f_mapping);
-	pr_debug("i_mmap write lock : %s\n", __func__);
+	pr_info("i_mmap write lock : %s\n", __func__);
 	for (; address < end; address += huge_page_size(h)) {
 		spinlock_t *ptl;
 		ptep = huge_pte_offset(mm, address);
@@ -3550,13 +3555,14 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 	pte_t *spte = NULL;
 	pte_t *pte;
 	spinlock_t *ptl;
+	struct lockfree_list_node *node = &mapping->i_mmap_head_node;
 
 	if (!vma_shareable(vma, addr))
 		return (pte_t *)pmd_alloc(mm, pud, addr);
 
 	i_mmap_lock_write(mapping);
-	pr_debug("i_mmap write lock : %s\n", __func__);
-	list_for_each_entry(svma, &mapping->i_mmap, shared.linear) {
+	pr_info("i_mmap write lock : %s\n", __func__);
+	lockfree_list_for_each_entry(svma, node, shared.linear) {
 		if (svma == vma)
 			continue;
 

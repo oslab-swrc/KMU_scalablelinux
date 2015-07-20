@@ -20,6 +20,7 @@
 #include <linux/gfp.h>
 #include <asm/tlbflush.h>
 #include <asm/io.h>
+#include <linux/lockfree_list.h>
 
 /*
  * We do use our own empty page to avoid interference with other users
@@ -166,6 +167,7 @@ static void __xip_unmap(struct address_space * mapping, unsigned long pgoff)
 	struct page *page;
 	unsigned count;
 	int locked = 0;
+	struct lockfree_list_node *node = mapping->i_mmap_head_node.next;
 
 	count = read_seqcount_begin(&xip_sparse_seq);
 
@@ -175,13 +177,16 @@ static void __xip_unmap(struct address_space * mapping, unsigned long pgoff)
 
 retry:
 	i_mmap_lock_read(mapping);
-	pr_debug("i_mmap read lock : %s\n", __func__);
-	list_for_each_entry(vma, &mapping->i_mmap, linear) {
+	pr_info("i_mmap read lock : %s\n", __func__);
+	lockfree_list_for_each_entry(vma, node, shared.linear) {
 		pte_t *pte, pteval;
 		spinlock_t *ptl;
-		struct mm_struct *mm = vma->vm_mm;
-		unsigned long address = vma->vm_start +
-			((pgoff - vma->vm_pgoff) << PAGE_SHIFT);
+		struct mm_struct *mm;
+		unsigned long address;
+		if (&vma->shared.linear == &mapping->i_mmap_tail_node)
+			break;
+		*mm = vma->vm_mm;
+		address = vma->vm_start + ((pgoff - vma->vm_pgoff) << PAGE_SHIFT);
 
 		BUG_ON(address < vma->vm_start || address >= vma->vm_end);
 		pte = page_check_address(page, mm, address, &ptl, 1);

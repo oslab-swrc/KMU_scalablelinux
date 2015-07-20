@@ -61,6 +61,7 @@
 #include <linux/string.h>
 #include <linux/dma-debug.h>
 #include <linux/debugfs.h>
+#include <linux/lockfree_list.h>
 
 #include <asm/io.h>
 #include <asm/pgalloc.h>
@@ -1331,7 +1332,7 @@ static void unmap_single_vma(struct mmu_gather *tlb,
 			 */
 			if (vma->vm_file) {
 				i_mmap_lock_write(vma->vm_file->f_mapping);
-				pr_debug("i_mmap write lock : %s\n", __func__);
+				pr_info("i_mmap write lock : %s\n", __func__);
 				__unmap_hugepage_range_final(tlb, vma, start, end, NULL);
 				pr_debug("i_mmap write unlock : %s\n", __func__);
 				i_mmap_unlock_write(vma->vm_file->f_mapping);
@@ -2310,14 +2311,15 @@ static void unmap_mapping_range_vma(struct vm_area_struct *vma,
 	zap_page_range_single(vma, start_addr, end_addr - start_addr, details);
 }
 
-static inline void unmap_mapping_range_linear_list(struct list_head *head,
+static inline void unmap_mapping_range_linear_list(struct lockfree_list_head *head,
 					    struct zap_details *details)
 {
     struct vm_area_struct *vma;
     pgoff_t vba, vea, zba, zea;
+    struct lockfree_list_node *node = head->head;
 
 
-	list_for_each_entry(vma, head, shared.linear) {
+    lockfree_list_for_each_entry(vma, node, shared.linear) {
 	    vba = vma->vm_pgoff;
 	    vea = vba + vma_pages(vma) - 1;
 	    /* Assume for now that PAGE_CACHE_SHIFT == PAGE_SHIFT */
@@ -2391,8 +2393,8 @@ void unmap_mapping_range(struct address_space *mapping,
 
 
 	i_mmap_lock_write(mapping);
-	pr_debug("i_mmap write lock : %s\n", __func__);
-	if (unlikely(!list_empty(&mapping->i_mmap)))
+	pr_info("i_mmap write lock : %s\n", __func__);
+	if (unlikely(!lockfree_list_empty(&mapping->i_mmap)))
 		unmap_mapping_range_linear_list(&mapping->i_mmap, &details);
 	if (unlikely(!list_empty(&mapping->i_mmap_nonlinear)))
 		unmap_mapping_range_list(&mapping->i_mmap_nonlinear, &details);

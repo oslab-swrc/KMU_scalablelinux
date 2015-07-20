@@ -15,6 +15,7 @@
 #include <asm/page.h>
 #include <asm/mmu.h>
 #include <linux/lockfree_list.h>
+#include <linux/llist.h>
 
 #ifndef AT_VECTOR_SIZE_ARCH
 #define AT_VECTOR_SIZE_ARCH 0
@@ -278,9 +279,11 @@ struct vm_area_struct {
 	 * linkage of vma in the address_space->i_mmap_nonlinear list.
 	 */
 	union {
-		struct list_head linear;
+		struct lockfree_list_node linear;
 		struct list_head nonlinear;
 	} shared;
+
+	struct llist_node llnode; /* delayed free */
 
 	/*
 	 * A file's MAP_PRIVATE vma can be in both i_mmap tree and anon_vma

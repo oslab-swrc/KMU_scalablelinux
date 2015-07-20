@@ -12,6 +12,7 @@
 #include <linux/list.h>
 #include <linux/list_lru.h>
 #include <linux/llist.h>
+#include <linux/lockfree_list.h>
 #include <linux/radix-tree.h>
 #include <linux/rbtree.h>
 #include <linux/init.h>
@@ -400,7 +401,9 @@ struct address_space {
 	struct radix_tree_root	page_tree;	/* radix tree of all pages */
 	spinlock_t		tree_lock;	/* and lock protecting it */
 	atomic_t		i_mmap_writable;/* count VM_SHARED mappings */
-	struct list_head	i_mmap;
+	struct lockfree_list_head	i_mmap;
+	struct lockfree_list_node	i_mmap_head_node;
+	struct lockfree_list_node	i_mmap_tail_node;
 	struct list_head	i_mmap_nonlinear;/*list VM_NONLINEAR mappings */
 	struct rw_semaphore	i_mmap_rwsem;	/* protect tree, count, list */
 	/* Protected by tree_lock together with the radix tree */
@@ -493,7 +496,7 @@ static inline void i_mmap_unlock_read(struct address_space *mapping)
  */
 static inline int mapping_mapped(struct address_space *mapping)
 {
-	return	!list_empty(&mapping->i_mmap) ||
+	return	!lockfree_list_empty(&mapping->i_mmap) ||
 		!list_empty(&mapping->i_mmap_nonlinear);
 }
 
