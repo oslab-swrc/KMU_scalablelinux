@@ -272,11 +272,11 @@ void unlink_file_vma(struct vm_area_struct *vma)
 
 	if (file) {
 		struct address_space *mapping = file->f_mapping;
-		i_mmap_lock_write(mapping);
+		//i_mmap_lock_write(mapping);
 		//pr_info("i_mmap write lock : %s\n", __func__);
 		__remove_shared_vm_struct(vma, file, mapping, 0);
 		pr_debug("i_mmap write unlock : %s\n", __func__);
-		i_mmap_unlock_write(mapping);
+		//i_mmap_unlock_write(mapping);
 	}
 }
 
@@ -801,7 +801,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 							next->vm_end);
 		}
 
-		i_mmap_lock_write(mapping);
+		//i_mmap_lock_write(mapping);
 		//pr_info("i_mmap write lock : %s\n", __func__);
 		if (insert) {
 			/*
@@ -810,7 +810,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 			 * throughout; but we cannot insert into address
 			 * space until vma start or end is updated.
 			 */
-			__vma_link_file(insert, 0);
+			__vma_link_file(insert, 1);
 		}
 	}
 
@@ -827,12 +827,14 @@ again:			remove_next = 1 + (end > next->vm_end);
 		pr_debug("anon_vma_lock_write: [%s]\n", __func__);
 	}
 
+#if 0
 	if (head) {
 		flush_dcache_mmap_lock(mapping);
 		lockfree_list_del(&vma->shared.linear, head);
 		if (adjust_next)
 			lockfree_list_del(&next->shared.linear, head);
 	}
+#endif
 
 	if (start != vma->vm_start) {
 		vma->vm_start = start;
@@ -848,12 +850,14 @@ again:			remove_next = 1 + (end > next->vm_end);
 		next->vm_pgoff += adjust_next;
 	}
 
+#if 0
 	if (head) {
 		if (adjust_next)
 		    vma_linear_insert(next, head);
 		vma_linear_insert(vma, head);
 		flush_dcache_mmap_unlock(mapping);
 	}
+#endif
 
 	if (remove_next) {
 		/*
@@ -862,7 +866,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 		 */
 		__vma_unlink(mm, next, vma);
 		if (file)
-			__remove_shared_vm_struct(next, file, mapping, 0);
+			__remove_shared_vm_struct(next, file, mapping, 1);
 	} else if (insert) {
 		/*
 		 * split_vma has split insert from vma, and needs
@@ -888,7 +892,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 
 	if (mapping) {
 		pr_debug("i_mmap write unlock : %s\n", __func__);
-		i_mmap_unlock_write(mapping);
+		//i_mmap_unlock_write(mapping);
 	}
 	if (head) {
 		uprobe_mmap(vma);
