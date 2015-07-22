@@ -2308,29 +2308,29 @@ static void unmap_mapping_range_vma(struct vm_area_struct *vma,
 	zap_page_range_single(vma, start_addr, end_addr - start_addr, details);
 }
 
-static inline void unmap_mapping_range_linear_list(struct list_head *head,
+static inline void unmap_mapping_range_tree(struct rb_root *root,
 					    struct zap_details *details)
 {
-    struct vm_area_struct *vma;
-    pgoff_t vba, vea, zba, zea;
+	struct vm_area_struct *vma;
+	pgoff_t vba, vea, zba, zea;
 
+	vma_interval_tree_foreach(vma, root,
+			details->first_index, details->last_index) {
 
-	list_for_each_entry(vma, head, shared.linear) {
-	    vba = vma->vm_pgoff;
-	    vea = vba + vma_pages(vma) - 1;
-	    /* Assume for now that PAGE_CACHE_SHIFT == PAGE_SHIFT */
-	    zba = details->first_index;
-	    if (zba < vba)
-	        zba = vba;
-	    zea = details->last_index;
-	    if (zea > vea)
-	        zea = vea;
+		vba = vma->vm_pgoff;
+		vea = vba + vma_pages(vma) - 1;
+		/* Assume for now that PAGE_CACHE_SHIFT == PAGE_SHIFT */
+		zba = details->first_index;
+		if (zba < vba)
+			zba = vba;
+		zea = details->last_index;
+		if (zea > vea)
+			zea = vea;
 
-	    unmap_mapping_range_vma(vma,
-	            ((zba - vba) << PAGE_SHIFT) + vma->vm_start,
-	            ((zea - vba + 1) << PAGE_SHIFT) + vma->vm_start,
-	                details);
-
+		unmap_mapping_range_vma(vma,
+			((zba - vba) << PAGE_SHIFT) + vma->vm_start,
+			((zea - vba + 1) << PAGE_SHIFT) + vma->vm_start,
+				details);
 	}
 }
 
@@ -2389,8 +2389,8 @@ void unmap_mapping_range(struct address_space *mapping,
 
 
 	i_mmap_lock_write(mapping);
-	if (unlikely(!list_empty(&mapping->i_mmap)))
-		unmap_mapping_range_linear_list(&mapping->i_mmap, &details);
+	if (unlikely(!RB_EMPTY_ROOT(&mapping->i_mmap)))
+		unmap_mapping_range_tree(&mapping->i_mmap, &details);
 	if (unlikely(!list_empty(&mapping->i_mmap_nonlinear)))
 		unmap_mapping_range_list(&mapping->i_mmap_nonlinear, &details);
 	i_mmap_unlock_write(mapping);

@@ -175,7 +175,7 @@ static void __xip_unmap(struct address_space * mapping, unsigned long pgoff)
 
 retry:
 	i_mmap_lock_read(mapping);
-	list_for_each_entry(vma, &mapping->i_mmap, linear) {
+	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		pte_t *pte, pteval;
 		spinlock_t *ptl;
 		struct mm_struct *mm = vma->vm_mm;

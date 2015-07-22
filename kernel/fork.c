@@ -444,8 +444,8 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 				vma_nonlinear_insert(tmp,
 						&mapping->i_mmap_nonlinear);
 			else
-				vma_linear_insert(tmp,
-						&mapping->i_mmap);
+				vma_interval_tree_insert_after(tmp, mpnt,
+							&mapping->i_mmap);
 			flush_dcache_mmap_unlock(mapping);
 			i_mmap_unlock_write(mapping);
 		}

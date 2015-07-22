@@ -247,7 +247,7 @@ static void __remove_shared_vm_struct(struct vm_area_struct *vma,
 	if (unlikely(vma->vm_flags & VM_NONLINEAR))
 		list_del_init(&vma->shared.nonlinear);
 	else
-		list_del_init(&vma->shared.linear);
+		vma_interval_tree_remove(vma, &mapping->i_mmap);
 	flush_dcache_mmap_unlock(mapping);
 }
 
@@ -621,7 +621,7 @@ static void __vma_link_file(struct vm_area_struct *vma)
 		if (unlikely(vma->vm_flags & VM_NONLINEAR))
 			vma_nonlinear_insert(vma, &mapping->i_mmap_nonlinear);
 		else
-			vma_linear_insert(vma, &mapping->i_mmap);
+			vma_interval_tree_insert(vma, &mapping->i_mmap);
 		flush_dcache_mmap_unlock(mapping);
 	}
 }
@@ -699,7 +699,7 @@ int vma_adjust(struct vm_area_struct *vma, unsigned long start,
 	struct vm_area_struct *next = vma->vm_next;
 	struct vm_area_struct *importer = NULL;
 	struct address_space *mapping = NULL;
-	struct list_head *head = NULL;
+	struct rb_root *root = NULL;
 	struct anon_vma *anon_vma = NULL;
 	struct file *file = vma->vm_file;
 	bool start_changed = false, end_changed = false;
@@ -757,7 +757,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 	if (file) {
 		mapping = file->f_mapping;
 		if (!(vma->vm_flags & VM_NONLINEAR)) {
-			head = &mapping->i_mmap;
+			root = &mapping->i_mmap;
 			uprobe_munmap(vma, vma->vm_start, vma->vm_end);
 
 			if (adjust_next)
@@ -790,11 +790,11 @@ again:			remove_next = 1 + (end > next->vm_end);
 		pr_debug("anon_vma_lock_write: [%s]\n", __func__);
 	}
 
-	if (head) {
+	if (root) {
 		flush_dcache_mmap_lock(mapping);
-		list_del(&vma->shared.linear);
+		vma_interval_tree_remove(vma, root);
 		if (adjust_next)
-		    list_del(&next->shared.linear);
+			vma_interval_tree_remove(next, root);
 	}
 
 	if (start != vma->vm_start) {
@@ -811,10 +811,10 @@ again:			remove_next = 1 + (end > next->vm_end);
 		next->vm_pgoff += adjust_next;
 	}
 
-	if (head) {
+	if (root) {
 		if (adjust_next)
-		    vma_linear_insert(next, head);
-		vma_linear_insert(vma, head);
+			vma_interval_tree_insert(next, root);
+		vma_interval_tree_insert(vma, root);
 		flush_dcache_mmap_unlock(mapping);
 	}
 
@@ -851,7 +851,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 	if (mapping)
 		i_mmap_unlock_write(mapping);
 
-	if (head) {
+	if (root) {
 		uprobe_mmap(vma);
 
 		if (adjust_next)
