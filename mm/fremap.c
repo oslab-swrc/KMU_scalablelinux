@@ -239,13 +239,11 @@ get_write_lock:
 			goto out_freed;
 		}
 		i_mmap_lock_write(mapping);
-		pr_debug("i_mmap write lock : %s\n", __func__);
 		flush_dcache_mmap_lock(mapping);
 		vma->vm_flags |= VM_NONLINEAR;
 		list_del(&vma->shared.linear);
 		vma_nonlinear_insert(vma, &mapping->i_mmap_nonlinear);
 		flush_dcache_mmap_unlock(mapping);
-		pr_debug("i_mmap write unlock : %s\n", __func__);
 		i_mmap_unlock_write(mapping);
 	}
 

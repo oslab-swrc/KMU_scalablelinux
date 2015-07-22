@@ -464,7 +464,6 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	struct address_space *mapping = page->mapping;
 
 	i_mmap_lock_read(mapping);
-	pr_debug("i_mmap read lock : %s\n", __func__);
 	read_lock(&tasklist_lock);
 	for_each_process(tsk) {
 		struct task_struct *t = task_early_kill(tsk, force_early);
@@ -484,7 +483,6 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 		}
 	}
 	read_unlock(&tasklist_lock);
-	pr_debug("i_mmap read unlock : %s\n", __func__);
 	i_mmap_unlock_read(mapping);
 }
 

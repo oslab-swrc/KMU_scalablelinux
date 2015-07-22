@@ -436,7 +436,6 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 			if (tmp->vm_flags & VM_DENYWRITE)
 				atomic_dec(&inode->i_writecount);
 			i_mmap_lock_write(mapping);
-			pr_debug("i_mmap write lock : %s\n", __func__);
 			if (tmp->vm_flags & VM_SHARED)
 				atomic_inc(&mapping->i_mmap_writable);
 			flush_dcache_mmap_lock(mapping);
@@ -448,7 +447,6 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 				vma_linear_insert(tmp,
 						&mapping->i_mmap);
 			flush_dcache_mmap_unlock(mapping);
-			pr_debug("i_mmap write unlock : %s\n", __func__);
 			i_mmap_unlock_write(mapping);
 		}
 

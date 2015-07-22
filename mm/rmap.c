@@ -1782,7 +1782,6 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 
 	pgoff = page_to_pgoff(page);
 	i_mmap_lock_read(mapping);
-	pr_debug("i_mmap read lock : %s\n", __func__);
 	list_for_each_entry(vma, &mapping->i_mmap, shared.linear) {
 		unsigned long address = vma_address(page, vma);
 
@@ -1804,7 +1803,6 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 
 	ret = rwc->file_nonlinear(page, mapping, rwc->arg);
 done:
-	pr_debug("i_mmap read unlock : %s\n", __func__);
 	i_mmap_unlock_read(mapping);
 	return ret;
 }

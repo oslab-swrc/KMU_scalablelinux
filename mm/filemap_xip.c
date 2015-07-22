@@ -175,7 +175,6 @@ static void __xip_unmap(struct address_space * mapping, unsigned long pgoff)
 
 retry:
 	i_mmap_lock_read(mapping);
-	pr_debug("i_mmap read lock : %s\n", __func__);
 	list_for_each_entry(vma, &mapping->i_mmap, linear) {
 		pte_t *pte, pteval;
 		spinlock_t *ptl;
@@ -198,7 +197,6 @@ retry:
 			page_cache_release(page);
 		}
 	}
-	pr_debug("i_mmap read unlock : %s\n", __func__);
 	i_mmap_unlock_read(mapping);
 
 	if (locked) {

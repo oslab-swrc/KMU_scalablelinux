@@ -262,9 +262,7 @@ void unlink_file_vma(struct vm_area_struct *vma)
 	if (file) {
 		struct address_space *mapping = file->f_mapping;
 		i_mmap_lock_write(mapping);
-		pr_debug("i_mmap write lock : %s\n", __func__);
 		__remove_shared_vm_struct(vma, file, mapping);
-		pr_debug("i_mmap write unlock : %s\n", __func__);
 		i_mmap_unlock_write(mapping);
 	}
 }
@@ -768,7 +766,6 @@ again:			remove_next = 1 + (end > next->vm_end);
 		}
 
 		i_mmap_lock_write(mapping);
-		pr_debug("i_mmap write lock : %s\n", __func__);
 		if (insert) {
 			/*
 			 * Put into interval tree now, so instantiated pages
@@ -851,11 +848,9 @@ again:			remove_next = 1 + (end > next->vm_end);
 		pr_debug("anon_vma_unlock_write: [%s]\n", __func__);
 		anon_vma_unlock_write(anon_vma);
 	}
-
-	if (mapping) {
-		pr_debug("i_mmap write unlock : %s\n", __func__);
+	if (mapping)
 		i_mmap_unlock_write(mapping);
-	}
+
 	if (head) {
 		uprobe_mmap(vma);
 

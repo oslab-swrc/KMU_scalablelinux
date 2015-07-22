@@ -724,7 +724,6 @@ build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
 
  again:
 	i_mmap_lock_read(mapping);
-	pr_debug("i_mmap read lock : %s\n", __func__);
 	list_for_each_entry(vma, &mapping->i_mmap, shared.linear) {
 		if (!valid_vma(vma, is_register))
 			continue;
@@ -755,7 +754,6 @@ build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
 		info->mm = vma->vm_mm;
 		info->vaddr = offset_to_vaddr(vma, offset);
 	}
-	pr_debug("i_mmap read unlock : %s\n", __func__);
 	i_mmap_unlock_read(mapping);
 
 	if (!more)
