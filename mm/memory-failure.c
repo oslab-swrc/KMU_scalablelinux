@@ -434,13 +434,16 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 	for_each_process (tsk) {
 		struct anon_vma_chain *vmac;
 		struct task_struct *t = task_early_kill(tsk, force_early);
-		struct lockfree_list_node *node = av->head_node.next;
+		struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)av->head_node.next);
+		struct lockfree_list_node *onode = av->head_node.next;
 
 		if (!t)
 			continue;
-		lockfree_list_for_each_entry(vmac, node, same_anon_vma) {
+		lockfree_list_for_each_entry(vmac, node, same_anon_vma, onode) {
 			if (&vmac->same_anon_vma == &av->tail_node)
 				break;
+			if (is_marked_ref((long)onode))
+				continue;
 
 			vma = vmac->vma;
 			if (!page_mapped_in_vma(page, vma))
@@ -462,7 +465,8 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	struct vm_area_struct *vma;
 	struct task_struct *tsk;
 	struct address_space *mapping = page->mapping;
-	struct lockfree_list_node *node = mapping->i_mmap_head_node.next;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
+	struct lockfree_list_node *onode = mapping->i_mmap_head_node.next;
 
 	i_mmap_lock_read(mapping);
 	pr_info("i_mmap read lock : %s\n", __func__);
@@ -472,9 +476,11 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 
 		if (!t)
 			continue;
-		lockfree_list_for_each_entry(vma, node, shared.linear) {
+		lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
 			if (&vma->shared.linear == &mapping->i_mmap_tail_node)
 				break;
+			if (is_marked_ref((long)onode))
+				continue;
 			/*
 			 * Send early kill signal to tasks where a vma covers
 			 * the page but the corrupted page is not necessarily

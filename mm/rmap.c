@@ -279,12 +279,15 @@ int anon_vma_clone(struct vm_area_struct *dst, struct vm_area_struct *src)
 {
 	struct anon_vma_chain *avc, *pavc;
 	struct anon_vma *root = NULL;
-	struct lockfree_list_node *node = src->anon_vma_chain_head_node.next;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)src->anon_vma_chain_head_node.next);
+	struct lockfree_list_node *onode = src->anon_vma_chain_head_node.next;
 
-	lockfree_list_for_each_entry(pavc, node, same_vma) {
+	lockfree_list_for_each_entry(pavc, node, same_vma, onode) {
 		struct anon_vma *anon_vma;
 		if (&pavc->same_vma == &src->anon_vma_chain_tail_node)
 			break;
+		if (is_marked_ref((long)onode))
+			continue;
 		avc = anon_vma_chain_alloc(GFP_KERNEL);//GFP_NOWAIT | __GFP_NOWARN);
 		if (unlikely(!avc)) {
 			//unlock_anon_vma_root(root);
@@ -387,17 +390,20 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 {
 	struct anon_vma_chain *avc, *next;
 //	struct anon_vma *root = NULL;
-	struct lockfree_list_node *node = vma->anon_vma_chain_head_node.next;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)vma->anon_vma_chain_head_node.next);
+	struct lockfree_list_node *onode = vma->anon_vma_chain_head_node.next;
 
 	/*
 	 * Unlink each anon_vma chained to the VMA.  This list is ordered
 	 * from newest to oldest, ensuring the root anon_vma gets freed last.
 	 */
-	lockfree_list_for_each_entry_safe(avc, next, node, same_vma) {
+	lockfree_list_for_each_entry_safe(avc, next, node, same_vma, onode) {
 		struct anon_vma *anon_vma = avc->anon_vma;
 
 		if (&avc->same_vma == &vma->anon_vma_chain_tail_node)
 			break;
+		if (is_marked_ref((long)onode))
+			continue;
 
 		//root = lock_anon_vma_root(root, anon_vma);
 		lockfree_list_del(&avc->same_anon_vma, &anon_vma->head);
@@ -417,16 +423,19 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 	}
 
 	//unlock_anon_vma_root(root);
-	node = vma->anon_vma_chain_head_node.next;
+	node = (struct lockfree_list_node *)get_unmarked_ref((long)vma->anon_vma_chain_head_node.next);
+	onode = vma->anon_vma_chain_head_node.next;
 	/*
 	 * Iterate the list once more, it now only contains empty and unlinked
 	 * anon_vmas, destroy them. Could not do before due to __put_anon_vma()
 	 * needing to write-acquire the anon_vma->root->rwsem.
 	 */
-	lockfree_list_for_each_entry_safe(avc, next, node, same_vma) {
+	lockfree_list_for_each_entry_safe(avc, next, node, same_vma, onode) {
 		struct anon_vma *anon_vma;
 		if (&avc->same_vma == &vma->anon_vma_chain_tail_node)
 			break;
+		if (is_marked_ref((long)onode))
+			continue;
 
 		anon_vma = avc->anon_vma;
 		put_anon_vma(anon_vma);
@@ -1719,19 +1728,26 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 	struct anon_vma_chain *avc;
 	int ret = SWAP_AGAIN;
 	struct lockfree_list_node *node;
+	struct lockfree_list_node *onode;
 
 	anon_vma = rmap_walk_anon_lock(page, rwc);
 	if (!anon_vma)
 		return ret;
 	node = anon_vma->head_node.next;
+	node = (struct lockfree_list_node *)get_unmarked_ref((long)anon_vma->head_node.next);
+	onode = anon_vma->head_node.next;
 
-	pr_info("rmap_walk_anon\n");
-	lockfree_list_for_each_entry(avc, node, same_anon_vma) {
+	//pr_info("rmap_walk_anon\n");
+	lockfree_list_for_each_entry(avc, node, same_anon_vma, onode) {
 		struct vm_area_struct *vma;
 		unsigned long address;
 
 		if (&avc->same_anon_vma == &anon_vma->tail_node)
 			break;
+		if (is_marked_ref((long)onode)) {
+	        pr_info("is marked reference\n");
+			continue;
+        }
 
 		vma = avc->vma;
 		address = vma_address(page, vma);
@@ -1768,7 +1784,8 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 	pgoff_t pgoff;
 	struct vm_area_struct *vma;
 	int ret = SWAP_AGAIN;
-	struct lockfree_list_node *node = mapping->i_mmap_head_node.next;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
+	struct lockfree_list_node *onode = mapping->i_mmap_head_node.next;
 
 	/*
 	 * The page lock not only makes sure that page->mapping cannot
@@ -1783,11 +1800,13 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 
 	pgoff = page_to_pgoff(page);
 	i_mmap_lock_read(mapping);
-	pr_info("i_mmap read lock : %s\n", __func__);
-	lockfree_list_for_each_entry(vma, node, shared.linear) {
+	//pr_info("i_mmap read lock : %s\n", __func__);
+	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
 		unsigned long address;
 		if (&vma->shared.linear == &mapping->i_mmap_tail_node)
 			break;
+		if (is_marked_ref((long)onode))
+			continue;
 		address = vma_address(page, vma);
 
 		if (rwc->invalid_vma && rwc->invalid_vma(vma, rwc->arg))

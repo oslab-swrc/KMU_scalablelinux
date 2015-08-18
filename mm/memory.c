@@ -2314,26 +2314,30 @@ static void unmap_mapping_range_vma(struct vm_area_struct *vma,
 static inline void unmap_mapping_range_linear_list(struct lockfree_list_head *head,
 					    struct zap_details *details)
 {
-    struct vm_area_struct *vma;
-    pgoff_t vba, vea, zba, zea;
-    struct lockfree_list_node *node = head->head;
+	struct vm_area_struct *vma;
+	pgoff_t vba, vea, zba, zea;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)head->head);
+	struct lockfree_list_node *onode = head->head;
 
+	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
+		if (&vma->shared.linear == head->tail)
+			break;
+		if (is_marked_ref((long)onode))
+			continue;
+		vba = vma->vm_pgoff;
+		vea = vba + vma_pages(vma) - 1;
+		/* Assume for now that PAGE_CACHE_SHIFT == PAGE_SHIFT */
+		zba = details->first_index;
+		if (zba < vba)
+			zba = vba;
+		zea = details->last_index;
+		if (zea > vea)
+			zea = vea;
 
-    lockfree_list_for_each_entry(vma, node, shared.linear) {
-	    vba = vma->vm_pgoff;
-	    vea = vba + vma_pages(vma) - 1;
-	    /* Assume for now that PAGE_CACHE_SHIFT == PAGE_SHIFT */
-	    zba = details->first_index;
-	    if (zba < vba)
-	        zba = vba;
-	    zea = details->last_index;
-	    if (zea > vea)
-	        zea = vea;
-
-	    unmap_mapping_range_vma(vma,
-	            ((zba - vba) << PAGE_SHIFT) + vma->vm_start,
-	            ((zea - vba + 1) << PAGE_SHIFT) + vma->vm_start,
-	                details);
+		unmap_mapping_range_vma(vma,
+				((zba - vba) << PAGE_SHIFT) + vma->vm_start,
+				((zea - vba + 1) << PAGE_SHIFT) + vma->vm_start,
+				details);
 
 	}
 }

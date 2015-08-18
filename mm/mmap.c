@@ -857,8 +857,8 @@ again:			remove_next = 1 + (end > next->vm_end);
 		vma_linear_insert(vma, head);
 		flush_dcache_mmap_unlock(mapping);
 	}
-#endif
 
+#endif
 	if (remove_next) {
 		/*
 		 * vma_merge has merged next into vma, and needs
@@ -3160,11 +3160,14 @@ int mm_take_all_locks(struct mm_struct *mm)
 		if (signal_pending(current))
 			goto out_unlock;
 		if (vma->anon_vma) {
-			struct lockfree_list_node *node = vma->anon_vma_chain_head_node.next;
+			struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)vma->anon_vma_chain_head_node.next);
+			struct lockfree_list_node *onode = vma->anon_vma_chain_head_node.next;
 
-			lockfree_list_for_each_entry(avc, node, same_vma) {
+			lockfree_list_for_each_entry(avc, node, same_vma, onode) {
 				if (&avc->same_vma == &vma->anon_vma_chain_tail_node)
 					break;
+				if (is_marked_ref((long)onode))
+					continue;
 				vm_lock_anon_vma(mm, avc->anon_vma);
 			}
 		}
@@ -3227,10 +3230,13 @@ void mm_drop_all_locks(struct mm_struct *mm)
 
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {
 		if (vma->anon_vma) {
-			struct lockfree_list_node *node = vma->anon_vma_chain_head_node.next;
-			lockfree_list_for_each_entry(avc, node, same_vma) {
+			struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)vma->anon_vma_chain_head_node.next);
+			struct lockfree_list_node *onode = vma->anon_vma_chain_head_node.next;
+			lockfree_list_for_each_entry(avc, node, same_vma, onode) {
 				if (&avc->same_vma == &vma->anon_vma_chain_tail_node)
 					break;
+				if (is_marked_ref((long)onode))
+					continue;
 				vm_unlock_anon_vma(avc->anon_vma);
 			}
 		}

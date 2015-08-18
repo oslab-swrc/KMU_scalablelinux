@@ -383,12 +383,15 @@ static inline void
 hugetlb_vmtruncate_list(struct lockfree_list_head *head, pgoff_t pgoff)
 {
 	struct vm_area_struct *vma;
-	struct lockfree_list_node *node = head->head->next;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)head->head->next);
+	struct lockfree_list_node *onode = head->head->next;
 
-	lockfree_list_for_each_entry(vma, node, shared.linear) {
+	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
 		unsigned long v_offset;
 		if (&vma->shared.linear == head->tail)
 			break;
+		if (is_marked_ref((long)onode))
+			continue;
 
 		/*
 		 * Can the expression below overflow on 32-bit arches?

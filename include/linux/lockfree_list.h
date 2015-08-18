@@ -5,13 +5,13 @@
 #include <asm/cmpxchg.h>
 
 struct lockfree_list_head {
-    struct lockfree_list_node *head, *tail;
+	struct lockfree_list_node *head, *tail;
 };
 
 struct lockfree_list_node {
-    struct lockfree_list_node *next;
-    void *key;
-    int garbage;
+	struct lockfree_list_node *next;
+	void *key;
+	int garbage;
 };
 
 #define LOCKFREE_LIST_HEAD_INIT(name)   { NULL, NULL }
@@ -33,7 +33,7 @@ struct lockfree_list_node {
 		(name)->member.garbage = 0
 
 static inline void init_lockfree_list_head(struct lockfree_list_head *list,
-        struct lockfree_list_node *head, struct lockfree_list_node *tail)
+		struct lockfree_list_node *head, struct lockfree_list_node *tail)
 {
 	tail->key = (void *)LONG_MAX;
 	tail->next = NULL;
@@ -43,22 +43,40 @@ static inline void init_lockfree_list_head(struct lockfree_list_head *list,
 	list->tail = tail;
 }
 
+static inline int is_marked_ref(long i)
+{
+	return (i & 0x1L);
+}
+
+static inline long get_unmarked_ref(long w)
+{
+	return (w & ~0x1L);
+}
+
+static inline long get_marked_ref(long w)
+{
+	return (w | 0x1L);
+}
+
 #define lockfree_list_entry(ptr, type, member)      \
-    container_of(ptr, type, member)
+	container_of(ptr, type, member)
 
 #define lockfree_list_for_each(pos, node)           \
-    for ((pos) = (node); pos; (pos) = (pos)->next)
+	for ((pos) = (node); pos; (pos) = (pos)->next)
 
-#define lockfree_list_for_each_entry(pos, node, member)             \
-    for ((pos) = lockfree_list_entry((node), typeof(*(pos)), member);   \
-         &(pos)->member != NULL;                    \
-         (pos) = lockfree_list_entry((pos)->member.next, typeof(*(pos)), member))
+#define lockfree_list_for_each_entry(pos, node, member, opos)		\
+	for ((pos) = lockfree_list_entry((node), typeof(*(pos)), member);   \
+		&(pos)->member != NULL;                    \
+		(pos) = lockfree_list_entry((struct lockfree_list_node *)get_unmarked_ref( \
+				(long)(pos)->member.next), typeof(*(pos)), member), \
+				 (opos) = (pos)->member.next)
 
-#define lockfree_list_for_each_entry_safe(pos, n, node, member)               \
-    for (pos = lockfree_list_entry((node), typeof(*pos), member);             \
-         &pos->member != NULL &&                           \
-         (n = lockfree_list_entry(pos->member.next, typeof(*n), member), true); \
-         pos = n)
+#define lockfree_list_for_each_entry_safe(pos, n, node, member, opos)	\
+	for (pos = lockfree_list_entry((node), typeof(*pos), member);             \
+		&pos->member != NULL &&	\
+		(n = lockfree_list_entry((struct lockfree_list_node *)get_unmarked_ref( \
+				(long)pos->member.next), typeof(*n), member), true); \
+		pos = n, (opos) = (pos)->member.next)
 
 static inline bool lockfree_list_empty(const struct lockfree_list_head *head)
 {

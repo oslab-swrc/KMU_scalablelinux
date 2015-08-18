@@ -3,21 +3,6 @@
 #include <linux/interrupt.h>
 #include <linux/lockfree_list.h>
 
-static inline int is_marked_ref(long i)
-{
-	return (i & 0x1L);
-}
-
-static inline long get_unmarked_ref(long w)
-{
-	return (w & ~0x1L);
-}
-
-static inline long get_marked_ref(long w)
-{
-	return (w | 0x1L);
-}
-
 static struct lockfree_list_node *list_search_for_add(struct lockfree_list_head *head, void *key,
 		struct lockfree_list_node **left_node)
 {

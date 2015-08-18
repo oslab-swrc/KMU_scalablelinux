@@ -1857,17 +1857,20 @@ static void __split_huge_page(struct page *page,
 {
 	int mapcount, mapcount2;
 	struct anon_vma_chain *avc;
-	struct lockfree_list_node *node = anon_vma->head_node.next;
+	struct lockfree_list_node *onode = anon_vma->head_node.next;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)anon_vma->head_node.next);
 
 	BUG_ON(!PageHead(page));
 	BUG_ON(PageTail(page));
 
 	mapcount = 0;
-	lockfree_list_for_each_entry(avc, node, same_anon_vma) {
+	lockfree_list_for_each_entry(avc, node, same_anon_vma, onode) {
 		struct vm_area_struct *vma;
 		unsigned long addr;
 		if (&avc->same_anon_vma == &anon_vma->tail_node)
 			break;
+		if (is_marked_ref((long)onode))
+			continue;
 		vma = avc->vma;
 		addr = vma_address(page, vma);
 		BUG_ON(is_vma_temporary_stack(vma));
@@ -1892,12 +1895,15 @@ static void __split_huge_page(struct page *page,
 	__split_huge_page_refcount(page, list);
 
 	mapcount2 = 0;
-	node = anon_vma->head_node.next;
-	lockfree_list_for_each_entry(avc, node, same_anon_vma) {
+	onode = anon_vma->head_node.next;
+	node = (struct lockfree_list_node *)get_unmarked_ref((long)anon_vma->head_node.next);
+	lockfree_list_for_each_entry(avc, node, same_anon_vma, onode) {
 		struct vm_area_struct *vma;
 		unsigned long addr;
 		if (&avc->same_anon_vma == &anon_vma->tail_node)
 			break;
+		if (is_marked_ref((long)onode))
+			continue;
 		vma = avc->vma;
 		addr = vma_address(page, vma);
 		BUG_ON(is_vma_temporary_stack(vma));

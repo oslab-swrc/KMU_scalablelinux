@@ -722,14 +722,17 @@ build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
 	struct map_info *prev = NULL;
 	struct map_info *info;
 	int more = 0;
-	struct lockfree_list_node *node = mapping->i_mmap_head_node.next;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
+	struct lockfree_list_node *onode = mapping->i_mmap_head_node.next;
 
  again:
 	i_mmap_lock_read(mapping);
 	pr_info("i_mmap read lock : %s\n", __func__);
-	lockfree_list_for_each_entry(vma, node, shared.linear) {
+	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
 		if (&vma->shared.linear == &mapping->i_mmap_tail_node)
 			break;
+		if (is_marked_ref((long)onode))
+			continue;
 		if (!valid_vma(vma, is_register))
 			continue;
 
