@@ -1941,8 +1941,7 @@ int split_huge_page_to_list(struct page *page, struct list_head *list)
 	anon_vma = page_get_anon_vma(page);
 	if (!anon_vma)
 		goto out;
-	pr_info("anon_vma_lock_write : [%s]\n", __func__);
-	anon_vma_lock_write(anon_vma);
+	anon_vma_lock_read(anon_vma);
 
 	ret = 0;
 	if (!PageCompound(page))
@@ -1954,8 +1953,7 @@ int split_huge_page_to_list(struct page *page, struct list_head *list)
 
 	BUG_ON(PageCompound(page));
 out_unlock:
-	anon_vma_unlock_write(anon_vma);
-	pr_info("anon_vma_unlock_write : [%s]\n", __func__);
+	anon_vma_unlock_read(anon_vma);
 	put_anon_vma(anon_vma);
 out:
 	return ret;
@@ -2480,7 +2478,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 	if (!pmd)
 		goto out;
 
-	anon_vma_lock_write(vma->anon_vma);
+	anon_vma_lock_read(vma->anon_vma);
 	pr_info("anon_vma_lock_write : [%s]\n", __func__);
 
 	pte = pte_offset_map(pmd, address);
@@ -2515,7 +2513,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 		 */
 		pmd_populate(mm, pmd, pmd_pgtable(_pmd));
 		spin_unlock(pmd_ptl);
-		anon_vma_unlock_write(vma->anon_vma);
+		anon_vma_unlock_read(vma->anon_vma);
 		pr_info("anon_vma_unlock_write : [%s]\n", __func__);
 		goto out;
 	}
@@ -2525,7 +2523,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 	 * can't run anymore.
 	 */
 	pr_info("anon_vma_unlock_write : [%s]\n", __func__);
-	anon_vma_unlock_write(vma->anon_vma);
+	anon_vma_unlock_read(vma->anon_vma);
 
 	__collapse_huge_page_copy(pte, new_page, vma, address, pte_ptl);
 	pte_unmap(pte);

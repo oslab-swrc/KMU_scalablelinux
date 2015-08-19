@@ -113,8 +113,8 @@ static inline void anon_vma_free(struct anon_vma *anon_vma)
 	 */
 	might_sleep();
 	if (rwsem_is_locked(&anon_vma->root->rwsem)) {
-		anon_vma_lock_write(anon_vma);
-		anon_vma_unlock_write(anon_vma);
+		anon_vma_lock_read(anon_vma);
+		anon_vma_unlock_read(anon_vma);
 	}
 
 	kmem_cache_free(anon_vma_cachep, anon_vma);
@@ -194,7 +194,7 @@ int anon_vma_prepare(struct vm_area_struct *vma)
 			allocated = anon_vma;
 		}
 
-		anon_vma_lock_write(anon_vma);
+		anon_vma_lock_read(anon_vma);
 		/* page_table_lock to protect against threads */
 		spin_lock(&mm->page_table_lock);
 		if (likely(!vma->anon_vma)) {
@@ -205,7 +205,7 @@ int anon_vma_prepare(struct vm_area_struct *vma)
 			avc = NULL;
 		}
 		spin_unlock(&mm->page_table_lock);
-		anon_vma_unlock_write(anon_vma);
+		anon_vma_unlock_read(anon_vma);
 
 		if (unlikely(allocated))
 			put_anon_vma(allocated);
@@ -233,9 +233,9 @@ static inline struct anon_vma *lock_anon_vma_root(struct anon_vma *root, struct 
 	struct anon_vma *new_root = anon_vma->root;
 	if (new_root != root) {
 		if (WARN_ON_ONCE(root))
-			up_write(&root->rwsem);
+			up_read(&root->rwsem);
 		root = new_root;
-		down_write(&root->rwsem);
+		down_read(&root->rwsem);
 	}
 	return root;
 }
@@ -243,26 +243,9 @@ static inline struct anon_vma *lock_anon_vma_root(struct anon_vma *root, struct 
 static inline void unlock_anon_vma_root(struct anon_vma *root)
 {
 	if (root)
-		up_write(&root->rwsem);
+		up_read(&root->rwsem);
 }
 
-static inline struct anon_vma *lock_anon_vma_root_write(struct anon_vma *root, struct anon_vma *anon_vma)
-{
-	struct anon_vma *new_root = anon_vma->root;
-	if (new_root != root) {
-		if (WARN_ON_ONCE(root))
-			up_write(&root->rwsem);
-		root = new_root;
-		down_write(&root->rwsem);
-	}
-	return root;
-}
-
-static inline void unlock_anon_vma_root_write(struct anon_vma *root)
-{
-	if (root)
-		up_write(&root->rwsem);
-}
 /*
  * Attach the anon_vmas from src to dst.
  * Returns 0 on success, -ENOMEM on failure.
@@ -288,9 +271,9 @@ int anon_vma_clone(struct vm_area_struct *dst, struct vm_area_struct *src)
 			break;
 		if (is_marked_ref((long)onode))
 			continue;
-		avc = anon_vma_chain_alloc(GFP_KERNEL);//GFP_NOWAIT | __GFP_NOWARN);
+		avc = anon_vma_chain_alloc(GFP_NOWAIT | __GFP_NOWARN);
 		if (unlikely(!avc)) {
-			//unlock_anon_vma_root(root);
+			unlock_anon_vma_root(root);
 			root = NULL;
 			avc = anon_vma_chain_alloc(GFP_KERNEL);
 			if (!avc)
@@ -298,10 +281,10 @@ int anon_vma_clone(struct vm_area_struct *dst, struct vm_area_struct *src)
 		}
 
 		anon_vma = pavc->anon_vma;
-		//root = lock_anon_vma_root(root, anon_vma);
+		root = lock_anon_vma_root(root, anon_vma);
 		anon_vma_chain_link(dst, avc, anon_vma);
 	}
-	//unlock_anon_vma_root(root);
+	unlock_anon_vma_root(root);
 	return 0;
 
  enomem_failure:
@@ -356,9 +339,9 @@ int anon_vma_fork(struct vm_area_struct *vma, struct vm_area_struct *pvma)
 	get_anon_vma(anon_vma->root);
 	/* Mark this anon_vma as the one where our new (COWed) pages go. */
 	vma->anon_vma = anon_vma;
-//	anon_vma_lock_write(anon_vma);
+	anon_vma_lock_write(anon_vma);
 	anon_vma_chain_link(vma, avc, anon_vma);
-//	anon_vma_unlock_write(anon_vma);
+	anon_vma_unlock_write(anon_vma);
 
 	return 0;
 
@@ -389,7 +372,7 @@ static void anon_vma_free_work_func(struct work_struct *w)
 void unlink_anon_vmas(struct vm_area_struct *vma)
 {
 	struct anon_vma_chain *avc, *next;
-//	struct anon_vma *root = NULL;
+	struct anon_vma *root = NULL;
 	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)vma->anon_vma_chain_head_node.next);
 	struct lockfree_list_node *onode = vma->anon_vma_chain_head_node.next;
 
@@ -405,7 +388,7 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 		if (is_marked_ref((long)onode))
 			continue;
 
-		//root = lock_anon_vma_root(root, anon_vma);
+		root = lock_anon_vma_root(root, anon_vma);
 		lockfree_list_del(&avc->same_anon_vma, &anon_vma->head);
 
 		/*
@@ -422,7 +405,7 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 		llist_add(&avc->llnode, &anon_vma_freelist);
 	}
 
-	//unlock_anon_vma_root(root);
+	unlock_anon_vma_root(root);
 	node = (struct lockfree_list_node *)get_unmarked_ref((long)vma->anon_vma_chain_head_node.next);
 	onode = vma->anon_vma_chain_head_node.next;
 	/*
@@ -550,14 +533,14 @@ struct anon_vma *page_lock_anon_vma_read(struct page *page)
 
 	anon_vma = (struct anon_vma *) (anon_mapping - PAGE_MAPPING_ANON);
 	root_anon_vma = ACCESS_ONCE(anon_vma->root);
-	if (down_read_trylock(&root_anon_vma->rwsem)) {
+	if (down_write_trylock(&root_anon_vma->rwsem)) {
 		/*
 		 * If the page is still mapped, then this anon_vma is still
 		 * its anon_vma, and holding the mutex ensures that it will
 		 * not go away, see anon_vma_free().
 		 */
 		if (!page_mapped(page)) {
-			up_read(&root_anon_vma->rwsem);
+			up_write(&root_anon_vma->rwsem);
 			anon_vma = NULL;
 		}
 		goto out;

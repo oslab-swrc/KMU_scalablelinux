@@ -823,7 +823,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 	} else if (adjust_next && next->anon_vma)
 	    anon_vma = next->anon_vma;
 	if (anon_vma) {
-		anon_vma_lock_write(anon_vma);
+		anon_vma_lock_read(anon_vma);
 		pr_debug("anon_vma_lock_write: [%s]\n", __func__);
 	}
 
@@ -887,7 +887,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 
 	if (anon_vma) {
 		pr_debug("anon_vma_unlock_write: [%s]\n", __func__);
-		anon_vma_unlock_write(anon_vma);
+		anon_vma_unlock_read(anon_vma);
 	}
 
 	if (mapping) {
@@ -3198,7 +3198,7 @@ static void vm_unlock_anon_vma(struct anon_vma *anon_vma)
 		if (!__test_and_clear_bit(0, (unsigned long *)
 					  &anon_vma->root->head_node.next))
 			BUG();
-		anon_vma_unlock_write(anon_vma);
+		anon_vma_unlock_read(anon_vma);
 	}
 }
 
