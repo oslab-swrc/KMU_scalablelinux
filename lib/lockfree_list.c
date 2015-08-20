@@ -128,10 +128,18 @@ struct lockfree_list_node *lockfree_list_del_batch(
 {
 	struct lockfree_list_node *right_node, *right_node_next, *left_node;
 	left_node = head->head;
+retry:
 	do {
 		right_node = list_search_for_del(head, node, &left_node);
+		/*
+		 * harris's lockfree list sometimes meet to the searching miss becasue
+		 * of the concurrent marked reference pointer. Therefore, we search again
+		 * due to removing the object obviously. It seems to hang in the this
+		 * code. However, our lockfree list patently contain removed object in
+		 * the list, so it may not ocurr infinite loop.
+		 */
 		if ((right_node->key != node->key)) {
-			return NULL;
+			goto retry;
 		}
 		right_node_next = right_node->next;
 		if (!is_marked_ref((long) right_node_next))
