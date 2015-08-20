@@ -1914,10 +1914,12 @@ again:
 		struct anon_vma *anon_vma = rmap_item->anon_vma;
 		struct anon_vma_chain *vmac;
 		struct vm_area_struct *vma;
-		struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)anon_vma->head_node.next);
-		struct lockfree_list_node *onode = anon_vma->head_node.next;
+		struct lockfree_list_node *node;
+		struct lockfree_list_node *onode;
 
 		anon_vma_lock_read(anon_vma);
+		node = (struct lockfree_list_node *)get_unmarked_ref((long)anon_vma->head_node.next);
+		onode = anon_vma->head_node.next;
 		pr_info("anon_vma_lock_read : [%s]\n", __func__);
 		lockfree_list_for_each_entry(vmac, node, same_anon_vma, onode) {
 			if (&vmac->same_anon_vma == &anon_vma->tail_node)

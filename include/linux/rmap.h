@@ -151,7 +151,6 @@ static inline void anon_vma_unlock_read(struct anon_vma *anon_vma)
 	write_unlock(&anon_vma->root->rwsem);
 }
 
-
 /*
  * anon_vma helper functions.
  */
