@@ -28,7 +28,7 @@
  */
 struct anon_vma {
 	struct anon_vma *root;		/* Root of this anon_vma tree */
-	struct rw_semaphore rwsem;	/* W: modification, R: walking the list */
+	rwlock_t rwsem;	/* W: modification, R: walking the list */
 	/*
 	 * The refcount is taken on an anon_vma when there is no
 	 * guarantee that the vma of page tables will exist for
@@ -121,34 +121,34 @@ static inline void vma_lock_anon_vma(struct vm_area_struct *vma)
 {
 	struct anon_vma *anon_vma = vma->anon_vma;
 	if (anon_vma)
-		down_write(&anon_vma->root->rwsem);
+		write_lock(&anon_vma->root->rwsem);
 }
 
 static inline void vma_unlock_anon_vma(struct vm_area_struct *vma)
 {
 	struct anon_vma *anon_vma = vma->anon_vma;
 	if (anon_vma)
-		up_write(&anon_vma->root->rwsem);
+		write_unlock(&anon_vma->root->rwsem);
 }
 
 static inline void anon_vma_lock_write(struct anon_vma *anon_vma)
 {
-	down_read(&anon_vma->root->rwsem);
+	read_lock(&anon_vma->root->rwsem);
 }
 
 static inline void anon_vma_unlock_write(struct anon_vma *anon_vma)
 {
-	up_read(&anon_vma->root->rwsem);
+	read_unlock(&anon_vma->root->rwsem);
 }
 
 static inline void anon_vma_lock_read(struct anon_vma *anon_vma)
 {
-	down_write(&anon_vma->root->rwsem);
+	write_lock(&anon_vma->root->rwsem);
 }
 
 static inline void anon_vma_unlock_read(struct anon_vma *anon_vma)
 {
-	up_write(&anon_vma->root->rwsem);
+	write_unlock(&anon_vma->root->rwsem);
 }
 
 
