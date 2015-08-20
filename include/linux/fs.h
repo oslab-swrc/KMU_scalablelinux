@@ -473,22 +473,22 @@ int mapping_tagged(struct address_space *mapping, int tag);
 
 static inline void i_mmap_lock_write(struct address_space *mapping)
 {
-	down_write(&mapping->i_mmap_rwsem);
+	down_read(&mapping->i_mmap_rwsem);
 }
 
 static inline void i_mmap_unlock_write(struct address_space *mapping)
 {
-	up_write(&mapping->i_mmap_rwsem);
+	up_read(&mapping->i_mmap_rwsem);
 }
 
 static inline void i_mmap_lock_read(struct address_space *mapping)
 {
-	down_read(&mapping->i_mmap_rwsem);
+	down_write(&mapping->i_mmap_rwsem);
 }
 
 static inline void i_mmap_unlock_read(struct address_space *mapping)
 {
-	up_read(&mapping->i_mmap_rwsem);
+	up_write(&mapping->i_mmap_rwsem);
 }
 
 /*

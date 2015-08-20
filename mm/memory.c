@@ -1331,11 +1331,11 @@ static void unmap_single_vma(struct mmu_gather *tlb,
 			 * safe to do nothing in this case.
 			 */
 			if (vma->vm_file) {
-				i_mmap_lock_write(vma->vm_file->f_mapping);
+				i_mmap_lock_read(vma->vm_file->f_mapping);
 				pr_info("i_mmap write lock : %s\n", __func__);
 				__unmap_hugepage_range_final(tlb, vma, start, end, NULL);
 				pr_debug("i_mmap write unlock : %s\n", __func__);
-				i_mmap_unlock_write(vma->vm_file->f_mapping);
+				i_mmap_unlock_read(vma->vm_file->f_mapping);
 			}
 		} else
 			unmap_page_range(tlb, vma, start, end, details);
@@ -2396,14 +2396,14 @@ void unmap_mapping_range(struct address_space *mapping,
 		details.last_index = ULONG_MAX;
 
 
-	i_mmap_lock_write(mapping);
+	i_mmap_lock_read(mapping);
 	pr_info("i_mmap write lock : %s\n", __func__);
 	if (unlikely(!lockfree_list_empty(&mapping->i_mmap)))
 		unmap_mapping_range_linear_list(&mapping->i_mmap, &details);
 	if (unlikely(!list_empty(&mapping->i_mmap_nonlinear)))
 		unmap_mapping_range_list(&mapping->i_mmap_nonlinear, &details);
 	pr_debug("i_mmap write unlock : %s\n", __func__);
-	i_mmap_unlock_write(mapping);
+	i_mmap_unlock_read(mapping);
 }
 EXPORT_SYMBOL(unmap_mapping_range);
 

@@ -419,11 +419,11 @@ static int hugetlb_vmtruncate(struct inode *inode, loff_t offset)
 	pgoff = offset >> PAGE_SHIFT;
 
 	i_size_write(inode, offset);
-	i_mmap_lock_write(mapping);
+	i_mmap_lock_read(mapping);
 	pr_info("i_mmap write lock : %s\n", __func__);
 	if (!lockfree_list_empty(&mapping->i_mmap))
 		hugetlb_vmtruncate_list(&mapping->i_mmap, pgoff);
-	i_mmap_unlock_write(mapping);
+	i_mmap_unlock_read(mapping);
 	truncate_hugepages(inode, offset);
 	return 0;
 }

@@ -119,7 +119,7 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 	if (need_rmap_locks) {
 		if (vma->vm_file) {
 			mapping = vma->vm_file->f_mapping;
-			i_mmap_lock_write(mapping);
+			i_mmap_lock_read(mapping);
 			pr_info("i_mmap write lock : %s\n", __func__);
 		}
 		if (vma->anon_vma) {
@@ -158,7 +158,7 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 		anon_vma_unlock_read(anon_vma);
 	if (mapping) {
 	    pr_debug("i_mmap write lock : %s\n", __func__);
-		i_mmap_unlock_write(mapping);
+		i_mmap_unlock_read(mapping);
 	}
 }
 

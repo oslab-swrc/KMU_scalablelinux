@@ -2782,7 +2782,7 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	 * this mapping should be shared between all the VMAs,
 	 * __unmap_hugepage_range() is called as the lock is already held
 	 */
-	i_mmap_lock_write(mapping);
+	i_mmap_lock_read(mapping);
 	pr_info("i_mmap write lock : %s\n", __func__);
 	lockfree_list_for_each_entry(iter_vma, node, shared.linear, onode) {
 		if (&iter_vma->shared.linear == &mapping->i_mmap_tail_node)
@@ -2806,7 +2806,7 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	}
 
 	pr_debug("i_mmap write unlock : %s\n", __func__);
-	i_mmap_unlock_write(mapping);
+	i_mmap_unlock_read(mapping);
 }
 
 /*
@@ -3364,7 +3364,7 @@ unsigned long hugetlb_change_protection(struct vm_area_struct *vma,
 	flush_cache_range(vma, address, end);
 
 	mmu_notifier_invalidate_range_start(mm, start, end);
-	i_mmap_lock_write(vma->vm_file->f_mapping);
+	i_mmap_lock_read(vma->vm_file->f_mapping);
 	pr_info("i_mmap write lock : %s\n", __func__);
 	for (; address < end; address += huge_page_size(h)) {
 		spinlock_t *ptl;
@@ -3395,7 +3395,7 @@ unsigned long hugetlb_change_protection(struct vm_area_struct *vma,
 	flush_tlb_range(vma, start, end);
 	mmu_notifier_invalidate_range(mm, start, end);
 	pr_debug("i_mmap write unlock : %s\n", __func__);
-	i_mmap_unlock_write(vma->vm_file->f_mapping);
+	i_mmap_unlock_read(vma->vm_file->f_mapping);
 	mmu_notifier_invalidate_range_end(mm, start, end);
 
 	return pages << h->order;
@@ -3565,7 +3565,7 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 	if (!vma_shareable(vma, addr))
 		return (pte_t *)pmd_alloc(mm, pud, addr);
 
-	i_mmap_lock_write(mapping);
+	i_mmap_lock_read(mapping);
 	pr_info("i_mmap write lock : %s\n", __func__);
 	lockfree_list_for_each_entry(svma, node, shared.linear, onode) {
 		if (&svma->shared.linear == &mapping->i_mmap_tail_node)
@@ -3599,7 +3599,7 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 out:
 	pte = (pte_t *)pmd_alloc(mm, pud, addr);
 	pr_debug("i_mmap write unlock : %s\n", __func__);
-	i_mmap_unlock_write(mapping);
+	i_mmap_unlock_read(mapping);
 	return pte;
 }
 
