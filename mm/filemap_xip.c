@@ -167,8 +167,8 @@ static void __xip_unmap(struct address_space * mapping, unsigned long pgoff)
 	struct page *page;
 	unsigned count;
 	int locked = 0;
-	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
-	struct lockfree_list_node *onode = mapping->i_mmap_head_node.next;
+	struct lockfree_list_node *node;
+	struct lockfree_list_node *onode;
 
 	count = read_seqcount_begin(&xip_sparse_seq);
 
@@ -178,6 +178,8 @@ static void __xip_unmap(struct address_space * mapping, unsigned long pgoff)
 
 retry:
 	i_mmap_lock_read(mapping);
+	node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
+	onode = mapping->i_mmap_head_node.next;
 	pr_info("i_mmap read lock : %s\n", __func__);
 	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
 		pte_t *pte, pteval;

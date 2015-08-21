@@ -465,10 +465,12 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	struct vm_area_struct *vma;
 	struct task_struct *tsk;
 	struct address_space *mapping = page->mapping;
-	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
-	struct lockfree_list_node *onode = mapping->i_mmap_head_node.next;
+	struct lockfree_list_node *node;
+	struct lockfree_list_node *onode;
 
 	i_mmap_lock_read(mapping);
+	node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
+	onode = mapping->i_mmap_head_node.next;
 	pr_info("i_mmap read lock : %s\n", __func__);
 	read_lock(&tasklist_lock);
 	for_each_process(tsk) {

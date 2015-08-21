@@ -2774,8 +2774,6 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	pgoff = ((address - vma->vm_start) >> PAGE_SHIFT) +
 			vma->vm_pgoff;
 	mapping = file_inode(vma->vm_file)->i_mapping;
-	node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
-	onode = mapping->i_mmap_head_node.next;
 
 	/*
 	 * Take the mapping lock for the duration of the table walk. As
@@ -2783,6 +2781,8 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	 * __unmap_hugepage_range() is called as the lock is already held
 	 */
 	i_mmap_lock_read(mapping);
+	node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
+	onode = mapping->i_mmap_head_node.next;
 	pr_info("i_mmap write lock : %s\n", __func__);
 	lockfree_list_for_each_entry(iter_vma, node, shared.linear, onode) {
 		if (&iter_vma->shared.linear == &mapping->i_mmap_tail_node)
@@ -3559,13 +3559,15 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 	pte_t *spte = NULL;
 	pte_t *pte;
 	spinlock_t *ptl;
-	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)&mapping->i_mmap_head_node);
-	struct lockfree_list_node *onode = &mapping->i_mmap_head_node;
+	struct lockfree_list_node *node;
+	struct lockfree_list_node *onode;
 
 	if (!vma_shareable(vma, addr))
 		return (pte_t *)pmd_alloc(mm, pud, addr);
 
 	i_mmap_lock_read(mapping);
+	node = (struct lockfree_list_node *)get_unmarked_ref((long)&mapping->i_mmap_head_node);
+	onode = &mapping->i_mmap_head_node;
 	pr_info("i_mmap write lock : %s\n", __func__);
 	lockfree_list_for_each_entry(svma, node, shared.linear, onode) {
 		if (&svma->shared.linear == &mapping->i_mmap_tail_node)
