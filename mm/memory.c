@@ -2316,8 +2316,8 @@ static inline void unmap_mapping_range_linear_list(struct lockfree_list_head *he
 {
 	struct vm_area_struct *vma;
 	pgoff_t vba, vea, zba, zea;
-	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)head->head);
-	struct lockfree_list_node *onode = head->head;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)head->head->next);
+	struct lockfree_list_node *onode = head->head->next;
 
 	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
 		if (&vma->shared.linear == head->tail)
