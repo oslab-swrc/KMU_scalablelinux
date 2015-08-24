@@ -3566,9 +3566,9 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 		return (pte_t *)pmd_alloc(mm, pud, addr);
 
 	i_mmap_lock_read(mapping);
-	node = (struct lockfree_list_node *)get_unmarked_ref((long)&mapping->i_mmap_head_node->next);
-	onode = &mapping->i_mmap_head_node->next;
-	pr_info("i_mmap write lock : %s\n", __func__);
+	node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
+	onode = mapping->i_mmap_head_node.next;
+	pr_debug("i_mmap write lock : %s\n", __func__);
 	lockfree_list_for_each_entry(svma, node, shared.linear, onode) {
 		if (&svma->shared.linear == &mapping->i_mmap_tail_node)
 			break;

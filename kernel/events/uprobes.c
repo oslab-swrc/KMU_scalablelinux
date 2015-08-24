@@ -727,7 +727,7 @@ build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
 
  again:
 	i_mmap_lock_read(mapping);
-	pr_info("i_mmap read lock : %s\n", __func__);
+	pr_debug("i_mmap read lock : %s\n", __func__);
 	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
 		if (&vma->shared.linear == &mapping->i_mmap_tail_node)
 			break;

@@ -180,7 +180,7 @@ retry:
 	i_mmap_lock_read(mapping);
 	node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
 	onode = mapping->i_mmap_head_node.next;
-	pr_info("i_mmap read lock : %s\n", __func__);
+	pr_debug("i_mmap read lock : %s\n", __func__);
 	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
 		pte_t *pte, pteval;
 		spinlock_t *ptl;

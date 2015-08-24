@@ -2479,7 +2479,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 		goto out;
 
 	anon_vma_lock_read(vma->anon_vma);
-	pr_info("anon_vma_lock_write : [%s]\n", __func__);
+	pr_debug("anon_vma_lock_write : [%s]\n", __func__);
 
 	pte = pte_offset_map(pmd, address);
 	pte_ptl = pte_lockptr(mm, pmd);
@@ -2514,7 +2514,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 		pmd_populate(mm, pmd, pmd_pgtable(_pmd));
 		spin_unlock(pmd_ptl);
 		anon_vma_unlock_read(vma->anon_vma);
-		pr_info("anon_vma_unlock_write : [%s]\n", __func__);
+		pr_debug("anon_vma_unlock_write : [%s]\n", __func__);
 		goto out;
 	}
 
@@ -2522,7 +2522,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 	 * All pages are isolated and locked so anon_vma rmap
 	 * can't run anymore.
 	 */
-	pr_info("anon_vma_unlock_write : [%s]\n", __func__);
+	pr_debug("anon_vma_unlock_write : [%s]\n", __func__);
 	anon_vma_unlock_read(vma->anon_vma);
 
 	__collapse_huge_page_copy(pte, new_page, vma, address, pte_ptl);

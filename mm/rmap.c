@@ -1719,7 +1719,7 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 	node = (struct lockfree_list_node *)get_unmarked_ref((long)anon_vma->head_node.next);
 	onode = anon_vma->head_node.next;
 
-	//pr_info("rmap_walk_anon\n");
+	pr_debug("rmap_walk_anon\n");
 	lockfree_list_for_each_entry(avc, node, same_anon_vma, onode) {
 		struct vm_area_struct *vma;
 		unsigned long address;
@@ -1784,7 +1784,7 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 	node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
 	onode = mapping->i_mmap_head_node.next;
 
-	//pr_info("i_mmap read lock : %s\n", __func__);
+	pr_debug("i_mmap read lock : %s\n", __func__);
 	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
 		unsigned long address;
 		if (&vma->shared.linear == &mapping->i_mmap_tail_node)
