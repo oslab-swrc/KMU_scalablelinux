@@ -405,7 +405,7 @@ struct address_space {
 	struct lockfree_list_node	i_mmap_head_node;
 	struct lockfree_list_node	i_mmap_tail_node;
 	struct list_head	i_mmap_nonlinear;/*list VM_NONLINEAR mappings */
-	struct rw_semaphore	i_mmap_rwsem;	/* protect tree, count, list */
+	rwlock_t	i_mmap_rwsem;	/* protect tree, count, list */
 	/* Protected by tree_lock together with the radix tree */
 	unsigned long		nrpages;	/* number of total pages */
 	unsigned long		nrshadows;	/* number of shadow entries */
@@ -473,22 +473,22 @@ int mapping_tagged(struct address_space *mapping, int tag);
 
 static inline void i_mmap_lock_write(struct address_space *mapping)
 {
-	down_read(&mapping->i_mmap_rwsem);
+	read_lock(&mapping->i_mmap_rwsem);
 }
 
 static inline void i_mmap_unlock_write(struct address_space *mapping)
 {
-	up_read(&mapping->i_mmap_rwsem);
+	read_unlock(&mapping->i_mmap_rwsem);
 }
 
 static inline void i_mmap_lock_read(struct address_space *mapping)
 {
-	down_write(&mapping->i_mmap_rwsem);
+	write_lock(&mapping->i_mmap_rwsem);
 }
 
 static inline void i_mmap_unlock_read(struct address_space *mapping)
 {
-	up_write(&mapping->i_mmap_rwsem);
+	write_unlock(&mapping->i_mmap_rwsem);
 }
 
 /*
