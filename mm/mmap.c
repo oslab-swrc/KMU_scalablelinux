@@ -827,15 +827,6 @@ again:			remove_next = 1 + (end > next->vm_end);
 		pr_debug("anon_vma_lock_write: [%s]\n", __func__);
 	}
 
-#if 0
-	if (head) {
-		flush_dcache_mmap_lock(mapping);
-		lockfree_list_del(&vma->shared.linear, head);
-		if (adjust_next)
-			lockfree_list_del(&next->shared.linear, head);
-	}
-#endif
-
 	if (start != vma->vm_start) {
 		vma->vm_start = start;
 		start_changed = true;
@@ -850,15 +841,6 @@ again:			remove_next = 1 + (end > next->vm_end);
 		next->vm_pgoff += adjust_next;
 	}
 
-#if 0
-	if (head) {
-		if (adjust_next)
-		    vma_linear_insert(next, head);
-		vma_linear_insert(vma, head);
-		flush_dcache_mmap_unlock(mapping);
-	}
-
-#endif
 	if (remove_next) {
 		/*
 		 * vma_merge has merged next into vma, and needs
