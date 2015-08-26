@@ -245,11 +245,11 @@ static void __remove_shared_vm_struct(struct vm_area_struct *vma,
 
 	flush_dcache_mmap_lock(mapping);
 	if (unlikely(vma->vm_flags & VM_NONLINEAR)) {
-		i_mmap_unlock_write(mapping);
-		i_mmap_lock_read(mapping);
+		//i_mmap_unlock_write(mapping);
+		//i_mmap_lock_read(mapping);
 		list_del_init(&vma->shared.nonlinear);
-		i_mmap_unlock_read(mapping);
-		i_mmap_lock_write(mapping);
+		//i_mmap_unlock_read(mapping);
+		//i_mmap_lock_write(mapping);
 	} else {
 		lockfree_list_del(&vma->shared.linear, &mapping->i_mmap);
 	}
@@ -272,11 +272,11 @@ void unlink_file_vma(struct vm_area_struct *vma)
 
 	if (file) {
 		struct address_space *mapping = file->f_mapping;
-		i_mmap_lock_write(mapping);
+		//i_mmap_lock_write(mapping);
 		//pr_info("i_mmap write lock : %s\n", __func__);
 		__remove_shared_vm_struct(vma, file, mapping, 0);
 		pr_debug("i_mmap write unlock : %s\n", __func__);
-		i_mmap_unlock_write(mapping);
+		//i_mmap_unlock_write(mapping);
 	}
 }
 
@@ -645,11 +645,11 @@ static void __vma_link_file(struct vm_area_struct *vma, int need_lock)
 
 		flush_dcache_mmap_lock(mapping);
 		if (unlikely(vma->vm_flags & VM_NONLINEAR)) {
-			i_mmap_unlock_write(mapping);
-			i_mmap_lock_read(mapping);
+			//i_mmap_unlock_write(mapping);
+			//i_mmap_lock_read(mapping);
 			vma_nonlinear_insert(vma, &mapping->i_mmap_nonlinear);
-			i_mmap_unlock_read(mapping);
-			i_mmap_lock_write(mapping);
+			//i_mmap_unlock_read(mapping);
+			//i_mmap_lock_write(mapping);
 		} else
 			vma_linear_insert(vma, &mapping->i_mmap);
 		flush_dcache_mmap_unlock(mapping);
@@ -680,11 +680,11 @@ static void vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
 	__vma_link(mm, vma, prev, rb_link, rb_parent);
 	if (vma->vm_file) {
 		mapping = vma->vm_file->f_mapping;
-		i_mmap_lock_write(mapping);
+		//i_mmap_lock_write(mapping);
 		//pr_info("i_mmap write lock : %s\n", __func__);
 		__vma_link_file(vma, 1);
 		pr_debug("i_mmap write unlock : %s\n", __func__);
-		i_mmap_unlock_write(mapping);
+		//i_mmap_unlock_write(mapping);
 	}
 	mm->map_count++;
 	validate_mm(mm);
@@ -801,7 +801,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 							next->vm_end);
 		}
 
-		i_mmap_lock_write(mapping);
+		//i_mmap_lock_write(mapping);
 		//pr_info("i_mmap write lock : %s\n", __func__);
 		if (insert) {
 			/*
@@ -874,7 +874,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 
 	if (mapping) {
 		pr_debug("i_mmap write unlock : %s\n", __func__);
-		i_mmap_unlock_write(mapping);
+		//i_mmap_unlock_write(mapping);
 	}
 	if (head) {
 		uprobe_mmap(vma);

@@ -273,7 +273,7 @@ int anon_vma_clone(struct vm_area_struct *dst, struct vm_area_struct *src)
 			continue;
 		avc = anon_vma_chain_alloc(GFP_NOWAIT | __GFP_NOWARN);
 		if (unlikely(!avc)) {
-			unlock_anon_vma_root(root);
+//			unlock_anon_vma_root(root);
 			root = NULL;
 			avc = anon_vma_chain_alloc(GFP_KERNEL);
 			if (!avc)
@@ -281,10 +281,10 @@ int anon_vma_clone(struct vm_area_struct *dst, struct vm_area_struct *src)
 		}
 
 		anon_vma = pavc->anon_vma;
-		root = lock_anon_vma_root(root, anon_vma);
+//		root = lock_anon_vma_root(root, anon_vma);
 		anon_vma_chain_link(dst, avc, anon_vma);
 	}
-	unlock_anon_vma_root(root);
+//	unlock_anon_vma_root(root);
 	return 0;
 
  enomem_failure:
@@ -339,9 +339,9 @@ int anon_vma_fork(struct vm_area_struct *vma, struct vm_area_struct *pvma)
 	get_anon_vma(anon_vma->root);
 	/* Mark this anon_vma as the one where our new (COWed) pages go. */
 	vma->anon_vma = anon_vma;
-	anon_vma_lock_write(anon_vma);
+//	anon_vma_lock_write(anon_vma);
 	anon_vma_chain_link(vma, avc, anon_vma);
-	anon_vma_unlock_write(anon_vma);
+//	anon_vma_unlock_write(anon_vma);
 
 	return 0;
 
@@ -388,7 +388,7 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 		if (is_marked_ref((long)onode))
 			continue;
 
-		root = lock_anon_vma_root(root, anon_vma);
+//		root = lock_anon_vma_root(root, anon_vma);
 		lockfree_list_del(&avc->same_anon_vma, &anon_vma->head);
 
 		/*
@@ -405,7 +405,7 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 		llist_add(&avc->llnode, &anon_vma_freelist);
 	}
 
-	unlock_anon_vma_root(root);
+//	unlock_anon_vma_root(root);
 	node = (struct lockfree_list_node *)get_unmarked_ref((long)vma->anon_vma_chain_head_node.next);
 	onode = vma->anon_vma_chain_head_node.next;
 	/*
