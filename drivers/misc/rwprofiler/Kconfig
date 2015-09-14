@@ -1,0 +1,5 @@
+config RWPROFILER
+	tristate "reader-writer profiler module"
+	default y if X86
+	help
+		This informations are located in /sys/kernel/mm/lock_rw_stats.

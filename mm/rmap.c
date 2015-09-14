@@ -57,6 +57,7 @@
 #include <linux/migrate.h>
 #include <linux/hugetlb.h>
 #include <linux/backing-dev.h>
+#include <linux/rwprofiler.h>
 
 #include <asm/tlbflush.h>
 
@@ -301,6 +302,7 @@ int anon_vma_fork(struct vm_area_struct *vma, struct vm_area_struct *pvma)
 	struct anon_vma_chain *avc;
 	struct anon_vma *anon_vma;
 	int error;
+	cycles_t fork_start, fork_end;
 
 	/* Don't bother if the parent process has no anon_vma here. */
 	if (!pvma->anon_vma)
@@ -313,7 +315,10 @@ int anon_vma_fork(struct vm_area_struct *vma, struct vm_area_struct *pvma)
 	 * First, attach the new VMA to the parent VMA's anon_vmas,
 	 * so rmap can find non-COWed pages in child processes.
 	 */
+	fork_start = get_cycles();
 	error = anon_vma_clone(vma, pvma);
+	fork_end = get_cycles();
+	RWPROFILER_STAT_ADD(anon_vma_cycle, fork_end - fork_start);
 	if (error)
 		return error;
 

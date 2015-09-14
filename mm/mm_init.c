@@ -11,6 +11,7 @@
 #include <linux/export.h>
 #include <linux/memory.h>
 #include <linux/notifier.h>
+#include <linux/rwprofiler.h>
 #include "internal.h"
 
 #ifdef CONFIG_DEBUG_MEMORY_INIT
@@ -152,6 +153,65 @@ EXPORT_SYMBOL_GPL(mm_kobj);
 #ifdef CONFIG_SMP
 s32 vm_committed_as_batch = 32;
 
+
+#ifdef CONFIG_RWPROFILER
+
+struct rwprofiler_attr {
+	struct kobj_attribute attr;
+	unsigned long long *var;
+};
+
+static ssize_t rwprofiler_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	struct rwprofiler_attr *stat =
+			container_of(attr, struct rwprofiler_attr, attr);
+	int cpu;
+	unsigned long long total = 0;
+
+	for_each_online_cpu(cpu)
+		total += per_cpu(*stat->var, cpu);
+
+	return snprintf(buf, PAGE_SIZE, "%llu\n", total);
+}
+
+#define RWPROFILER_DEFINE(stat)                    \
+    DEFINE_PER_CPU(unsigned long long, rwprofiler_##stat);
+    RWPROFILER_FOR_RWLOCK(RWPROFILER_DEFINE)
+#undef RWPROFILER_DEFINE
+
+#define RWPROFILER_ATTR(stat)                 \
+     static struct rwprofiler_attr rwprofiler_attr_##stat = { \
+         __ATTR(stat, 0444, rwprofiler_show, NULL),    \
+         &rwprofiler_##stat                \
+     };
+RWPROFILER_FOR_RWLOCK(RWPROFILER_ATTR);
+#undef RWPROFILER_ATTR
+
+static struct attribute *rwprofilers_attrs[] = {
+#define RWPROFILER_ATTR_PTR(stat) &rwprofiler_attr_##stat.attr.attr,
+	RWPROFILER_FOR_RWLOCK(RWPROFILER_ATTR_PTR)
+#undef RWPROFILER_ATTR_PTR
+	NULL
+};
+
+static struct attribute_group rwprofilers_attr_group = {
+	.name = "rwprofilers",
+	.attrs = rwprofilers_attrs,
+};
+
+static int rwprofilers_init(void)
+{
+	return sysfs_create_group(mm_kobj, &rwprofilers_attr_group);
+}
+#else
+static int rwprofilers_init(void)
+{
+   return 0;
+}
+#endif /* CONFIG_RWPROFILER */
+
+
 static void __meminit mm_compute_batch(void)
 {
 	u64 memsized_batch;
@@ -200,6 +260,6 @@ static int __init mm_sysfs_init(void)
 	if (!mm_kobj)
 		return -ENOMEM;
 
-	return 0;
+	return rwprofilers_init();
 }
 postcore_initcall(mm_sysfs_init);
