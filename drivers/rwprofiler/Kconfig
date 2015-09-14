@@ -1,0 +1,3 @@
+config RWPROFILER
+	tristate "reader-writer profiler module"
+	default y

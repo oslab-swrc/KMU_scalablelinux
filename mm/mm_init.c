@@ -146,6 +146,63 @@ static __init int set_mminit_loglevel(char *str)
 early_param("mminit_loglevel", set_mminit_loglevel);
 #endif /* CONFIG_DEBUG_MEMORY_INIT */
 
+#ifdef CONFIG_IVY_MM_LOCK_RW_STATS
+
+struct lock_rw_stat_attr {
+	struct kobj_attribute attr;
+	unsigned long long *var;
+};
+
+static ssize_t lock_rw_stat_show(struct kobject *kobj,
+		struct kobj_attribute *attr, char *buf)
+{
+	struct lock_rw_stat_attr *stat =
+			container_of(attr, struct lock_rw_stat_attr, attr);
+	int cpu;
+	unsigned long long total = 0;
+
+	for_each_online_cpu(cpu)
+		total += per_cpu(*stat->var, cpu);
+
+	return snprintf(buf, PAGE_SIZE, "%llu\n", total);
+}
+
+#define MM_STAT_DEFINE(stat)                    \
+     DEFINE_PER_CPU(unsigned long long, mm_stat_##stat);
+AMDRAGON_FOR_MM_STAT(MM_STAT_DEFINE)
+#undef MM_STAT_DEFINE
+
+#define MM_STAT_ATTR(stat)                 \
+     static struct mm_stat_attr mm_stat_attr_##stat = { \
+         __ATTR(stat, 0444, mm_stat_show, NULL),    \
+         &mm_stat_##stat                \
+     };
+AMDRAGON_FOR_MM_STAT(MM_STAT_ATTR);
+#undef MM_STAT_ATTR
+
+static struct attribute *mm_stats_attrs[] = {
+#define MM_STAT_ATTR_PTR(stat) &mm_stat_attr_##stat.attr.attr,
+	AMDRAGON_FOR_MM_STAT(MM_STAT_ATTR_PTR)
+#undef MM_STAT_ATTR_PTR
+	NULL
+};
+
+static struct attribute_group lock_rw_stats_attr_group = {
+	.name = "lock_rw_stats",
+	.attrs = lock_rw_stats_attrs,
+};
+
+static int lock_rw_stats_init(void)
+{
+	return sysfs_create_group(mm_kobj, &lock_rw_stats_attr_group);
+}
+#else
+static int mm_stats_init(void)
+{
+   return 0;
+}
+#endif /* CONFIG_IVY_MM_LOCK_RW_STATS */
+
 struct kobject *mm_kobj;
 EXPORT_SYMBOL_GPL(mm_kobj);
 

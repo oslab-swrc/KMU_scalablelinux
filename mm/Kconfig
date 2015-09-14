@@ -452,6 +452,12 @@ config NEED_PER_CPU_KM
 	bool
 	default y
 
+config IVY_MM_LOCK_RW_STATS
+	bool "Record lock reader-writer patterns"
+	default y
+	help
+		This informations are located in /sys/kernel/mm/lock_rw_stats.
+
 config CLEANCACHE
 	bool "Enable cleancache driver to cache clean pages if tmem is present"
 	default n
