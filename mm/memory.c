@@ -2366,6 +2366,8 @@ void unmap_mapping_range(struct address_space *mapping,
 		loff_t const holebegin, loff_t const holelen, int even_cows)
 {
 	struct zap_details details;
+	struct deferu_head *dp = &mapping->deferu;
+
 	pgoff_t hba = holebegin >> PAGE_SHIFT;
 	pgoff_t hlen = (holelen + PAGE_SIZE - 1) >> PAGE_SHIFT;
 
@@ -2385,12 +2387,16 @@ void unmap_mapping_range(struct address_space *mapping,
 		details.last_index = ULONG_MAX;
 
 
+	mutex_lock(&dp->mutex);
+	synchronize_deferu(dp);
 	i_mmap_lock_write(mapping);
 	if (unlikely(!RB_EMPTY_ROOT(&mapping->i_mmap)))
 		unmap_mapping_range_tree(&mapping->i_mmap, &details);
 	if (unlikely(!list_empty(&mapping->i_mmap_nonlinear)))
 		unmap_mapping_range_list(&mapping->i_mmap_nonlinear, &details);
 	i_mmap_unlock_write(mapping);
+	dp->completed = 1;
+	mutex_unlock(&dp->mutex);
 }
 EXPORT_SYMBOL(unmap_mapping_range);
 

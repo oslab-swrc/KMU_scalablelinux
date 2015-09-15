@@ -460,7 +460,12 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	struct vm_area_struct *vma;
 	struct task_struct *tsk;
 	struct address_space *mapping = page->mapping;
+	struct deferu_head *dp;
 
+	dp = &mapping->deferu;
+
+	mutex_lock(&dp->mutex);
+	synchronize_deferu(dp);
 	i_mmap_lock_read(mapping);
 	read_lock(&tasklist_lock);
 	for_each_process(tsk) {
@@ -484,6 +489,8 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	}
 	read_unlock(&tasklist_lock);
 	i_mmap_unlock_read(mapping);
+	dp->completed = 1;
+	mutex_unlock(&dp->mutex);
 }
 
 /*

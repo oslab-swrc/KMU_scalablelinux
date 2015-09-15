@@ -2761,6 +2761,7 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	struct hstate *h = hstate_vma(vma);
 	struct vm_area_struct *iter_vma;
 	struct address_space *mapping;
+	struct deferu_head *dp;
 	pgoff_t pgoff;
 
 	/*
@@ -2771,12 +2772,14 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	pgoff = ((address - vma->vm_start) >> PAGE_SHIFT) +
 			vma->vm_pgoff;
 	mapping = file_inode(vma->vm_file)->i_mapping;
-
+	dp = &mapping->deferu;
 	/*
 	 * Take the mapping lock for the duration of the table walk. As
 	 * this mapping should be shared between all the VMAs,
 	 * __unmap_hugepage_range() is called as the lock is already held
 	 */
+	mutex_lock(&dp->mutex);
+	synchronize_deferu(dp);
 	i_mmap_lock_write(mapping);
 	vma_interval_tree_foreach(iter_vma, &mapping->i_mmap, pgoff, pgoff) {
 		/* Do not unmap the current VMA */
@@ -2795,6 +2798,8 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 					     address + huge_page_size(h), page);
 	}
 	i_mmap_unlock_write(mapping);
+	dp->completed = 1;
+	mutex_unlock(&dp->mutex);
 }
 
 /*
@@ -3545,10 +3550,15 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 	pte_t *spte = NULL;
 	pte_t *pte;
 	spinlock_t *ptl;
+	struct deferu_head *dp;
+
+	dp = &mapping->deferu;
 
 	if (!vma_shareable(vma, addr))
 		return (pte_t *)pmd_alloc(mm, pud, addr);
 
+	mutex_lock(&dp->mutex);
+	synchronize_deferu(dp);
 	i_mmap_lock_write(mapping);
 	vma_interval_tree_foreach(svma, &mapping->i_mmap, idx, idx) {
 		if (svma == vma)
@@ -3578,6 +3588,8 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 out:
 	pte = (pte_t *)pmd_alloc(mm, pud, addr);
 	i_mmap_unlock_write(mapping);
+	dp->completed = 1;
+	mutex_unlock(&dp->mutex);
 	return pte;
 }
 

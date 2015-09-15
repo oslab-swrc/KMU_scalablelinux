@@ -166,6 +166,7 @@ static void __xip_unmap(struct address_space * mapping, unsigned long pgoff)
 	struct page *page;
 	unsigned count;
 	int locked = 0;
+	struct deferu_head *dp = &mapping->deferu;
 
 	count = read_seqcount_begin(&xip_sparse_seq);
 
@@ -174,6 +175,8 @@ static void __xip_unmap(struct address_space * mapping, unsigned long pgoff)
 		return;
 
 retry:
+	mutex_lock(&dp->mutex);
+	synchronize_deferu(dp);
 	i_mmap_lock_read(mapping);
 	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		pte_t *pte, pteval;
@@ -198,6 +201,8 @@ retry:
 		}
 	}
 	i_mmap_unlock_read(mapping);
+	dp->completed = 1;
+	mutex_unlock(&dp->mutex);
 
 	if (locked) {
 		mutex_unlock(&xip_sparse_mutex);

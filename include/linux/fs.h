@@ -30,6 +30,7 @@
 #include <linux/lockdep.h>
 #include <linux/percpu-rwsem.h>
 #include <linux/blk_types.h>
+#include <linux/deferu.h>
 
 #include <asm/byteorder.h>
 #include <uapi/linux/fs.h>
@@ -401,6 +402,7 @@ struct address_space {
 	spinlock_t		tree_lock;	/* and lock protecting it */
 	atomic_t		i_mmap_writable;/* count VM_SHARED mappings */
 	struct rb_root		i_mmap;		/* tree of private and shared mappings */
+	struct deferu_head	deferu;
 	struct list_head	i_mmap_nonlinear;/*list VM_NONLINEAR mappings */
 	struct rw_semaphore	i_mmap_rwsem;	/* protect tree, count, list */
 	/* Protected by tree_lock together with the radix tree */

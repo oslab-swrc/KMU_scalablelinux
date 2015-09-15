@@ -284,6 +284,7 @@ struct vm_area_struct {
 		struct list_head nonlinear;
 	} shared;
 
+	struct deferu_node deferu_node;
 	/*
 	 * A file's MAP_PRIVATE vma can be in both i_mmap tree and anon_vma
 	 * list, after a COW of one of the file pages.	A MAP_SHARED vma

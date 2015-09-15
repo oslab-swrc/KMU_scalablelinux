@@ -611,6 +611,28 @@ static unsigned long count_vma_pages_range(struct mm_struct *mm,
 	return nr_pages;
 }
 
+void i_mmap_deferu_add(void *node, void *head)
+{
+	struct vm_area_struct *vma = (struct vm_area_struct *)node;
+	struct rb_root *root = (struct rb_root *)head;
+
+	vma_interval_tree_insert(vma, root);
+}
+
+void i_mmap_deferu_del(void *node, void *head)
+{
+	struct vm_area_struct *vma = (struct vm_area_struct *)node;
+	struct rb_root *root = (struct rb_root *)head;
+
+	vma_interval_tree_remove(vma, root);
+}
+
+struct deferu_operations i_mmap_deferu_operations = {
+	.add = i_mmap_deferu_add,
+	.del = i_mmap_deferu_del,
+	.move = NULL,
+};
+
 void __vma_link_rb(struct mm_struct *mm, struct vm_area_struct *vma,
 		struct rb_node **rb_link, struct rb_node *rb_parent)
 {

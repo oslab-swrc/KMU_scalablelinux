@@ -722,8 +722,11 @@ build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
 	struct map_info *prev = NULL;
 	struct map_info *info;
 	int more = 0;
+	struct deferu_head *dp = &mapping->deferu;
 
  again:
+	mutex_lock(&dp->mutex);
+	synchronize_deferu(dp);
 	i_mmap_lock_read(mapping);
 	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		if (!valid_vma(vma, is_register))
@@ -756,7 +759,8 @@ build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
 		info->vaddr = offset_to_vaddr(vma, offset);
 	}
 	i_mmap_unlock_read(mapping);
-
+	dp->completed = 1;
+	mutex_unlock(&dp->mutex);
 	if (!more)
 		goto out;
 
