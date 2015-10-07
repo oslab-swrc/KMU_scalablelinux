@@ -12,6 +12,7 @@
 #include <linux/cpumask.h>
 #include <linux/uprobes.h>
 #include <linux/page-flags-layout.h>
+#include <linux/deferu.h>
 #include <asm/page.h>
 #include <asm/mmu.h>
 
@@ -284,7 +285,8 @@ struct vm_area_struct {
 		struct list_head nonlinear;
 	} shared;
 
-	struct deferu_node deferu_node;
+	struct deferu_i_mmap_node *dnode;
+
 	/*
 	 * A file's MAP_PRIVATE vma can be in both i_mmap tree and anon_vma
 	 * list, after a COW of one of the file pages.	A MAP_SHARED vma

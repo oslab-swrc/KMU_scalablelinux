@@ -198,6 +198,9 @@ struct kmem_cache *fs_cachep;
 /* SLAB cache for vm_area_struct structures */
 struct kmem_cache *vm_area_cachep;
 
+/* SLAB cache for vm_area_struct structures */
+struct kmem_cache *deferu_node_cachep;
+
 /* SLAB cache for mm_struct structures (tsk->mm) */
 static struct kmem_cache *mm_cachep;
 
@@ -426,6 +429,7 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 		tmp->vm_flags &= ~VM_LOCKED;
 		tmp->vm_next = tmp->vm_prev = NULL;
 		file = tmp->vm_file;
+
 		if (file) {
 			struct inode *inode = file_inode(file);
 			struct address_space *mapping = file->f_mapping;
@@ -441,9 +445,22 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 			if (unlikely(tmp->vm_flags & VM_NONLINEAR))
 				vma_nonlinear_insert(tmp,
 						&mapping->i_mmap_nonlinear);
-			else
-				vma_interval_tree_insert_after(tmp, mpnt,
-							&mapping->i_mmap);
+			else {
+				struct deferu_node *dnode =
+						kmem_cache_zalloc(deferu_node_cachep, GFP_KERNEL);
+				dnode->op_num = DEFERU_OP_ADD;
+				dnode->key = tmp;
+				deferu_add(dnode, &mapping->deferu);
+#if 0
+				struct deferu_node *dnode = &tmp->dnode->defer_node[DEFERU_OP_ADD];
+				dnode->key = tmp;
+				dnode->reference = 1;
+				dnode->op_num = DEFERU_OP_ADD;
+				deferu_add(dnode, &mapping->deferu);
+#endif
+				//vma_interval_tree_insert_after(tmp, mpnt,
+				//			&mapping->i_mmap);
+			}
 			flush_dcache_mmap_unlock(mapping);
 			i_mmap_unlock_write(mapping);
 		}
@@ -1788,6 +1805,7 @@ void __init proc_caches_init(void)
 			sizeof(struct mm_struct), ARCH_MIN_MMSTRUCT_ALIGN,
 			SLAB_HWCACHE_ALIGN|SLAB_PANIC|SLAB_NOTRACK, NULL);
 	vm_area_cachep = KMEM_CACHE(vm_area_struct, SLAB_PANIC);
+	deferu_node_cachep = KMEM_CACHE(deferu_node, SLAB_PANIC);
 	mmap_init();
 	nsproxy_cache_init();
 }

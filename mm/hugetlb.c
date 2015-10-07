@@ -24,6 +24,7 @@
 #include <linux/swapops.h>
 #include <linux/page-isolation.h>
 #include <linux/jhash.h>
+#include <linux/deferu.h>
 
 #include <asm/page.h>
 #include <asm/pgtable.h>
@@ -2779,7 +2780,7 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	 * __unmap_hugepage_range() is called as the lock is already held
 	 */
 	mutex_lock(&dp->mutex);
-	synchronize_deferu(dp);
+	synchronize_deferu_i_mmap(dp, &mapping->i_mmap);
 	i_mmap_lock_write(mapping);
 	vma_interval_tree_foreach(iter_vma, &mapping->i_mmap, pgoff, pgoff) {
 		/* Do not unmap the current VMA */
@@ -3558,7 +3559,7 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 		return (pte_t *)pmd_alloc(mm, pud, addr);
 
 	mutex_lock(&dp->mutex);
-	synchronize_deferu(dp);
+	synchronize_deferu_i_mmap(dp, &mapping->i_mmap);
 	i_mmap_lock_write(mapping);
 	vma_interval_tree_foreach(svma, &mapping->i_mmap, idx, idx) {
 		if (svma == vma)

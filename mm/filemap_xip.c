@@ -20,6 +20,7 @@
 #include <linux/gfp.h>
 #include <asm/tlbflush.h>
 #include <asm/io.h>
+#include <linux/deferu.h>
 
 /*
  * We do use our own empty page to avoid interference with other users
@@ -176,7 +177,7 @@ static void __xip_unmap(struct address_space * mapping, unsigned long pgoff)
 
 retry:
 	mutex_lock(&dp->mutex);
-	synchronize_deferu(dp);
+	synchronize_deferu_i_mmap(dp, &mapping->i_mmap);
 	i_mmap_lock_read(mapping);
 	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		pte_t *pte, pteval;

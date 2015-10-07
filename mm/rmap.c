@@ -57,6 +57,7 @@
 #include <linux/migrate.h>
 #include <linux/hugetlb.h>
 #include <linux/backing-dev.h>
+#include <linux/deferu.h>
 
 #include <asm/tlbflush.h>
 
@@ -1721,7 +1722,7 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 	pgoff_t pgoff;
 	struct vm_area_struct *vma;
 	int ret = SWAP_AGAIN;
-	struct deferu_head *dp = &mapping->deferu;
+	struct deferu_head *dp;
 
 	/*
 	 * The page lock not only makes sure that page->mapping cannot
@@ -1735,9 +1736,10 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 		return ret;
 
 	pgoff = page_to_pgoff(page);
+	i_mmap_lock_write(mapping);
+	dp = &mapping->deferu;
 	mutex_lock(&dp->mutex);
-	synchronize_deferu(dp);
-	i_mmap_lock_read(mapping);
+	synchronize_deferu_i_mmap(dp, &mapping->i_mmap);
 	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		unsigned long address = vma_address(page, vma);
 
@@ -1759,9 +1761,8 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 
 	ret = rwc->file_nonlinear(page, mapping, rwc->arg);
 done:
-	i_mmap_unlock_read(mapping);
-	dp->completed = 1;
 	mutex_unlock(&dp->mutex);
+	i_mmap_unlock_write(mapping);
 	return ret;
 }
 

@@ -37,6 +37,7 @@
 #include <linux/percpu-rwsem.h>
 #include <linux/task_work.h>
 #include <linux/shmem_fs.h>
+#include <linux/deferu.h>
 
 #include <linux/uprobes.h>
 
@@ -726,7 +727,7 @@ build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
 
  again:
 	mutex_lock(&dp->mutex);
-	synchronize_deferu(dp);
+	synchronize_deferu_i_mmap(dp, &mapping->i_mmap);
 	i_mmap_lock_read(mapping);
 	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		if (!valid_vma(vma, is_register))

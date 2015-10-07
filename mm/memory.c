@@ -2388,7 +2388,7 @@ void unmap_mapping_range(struct address_space *mapping,
 
 
 	mutex_lock(&dp->mutex);
-	synchronize_deferu(dp);
+	synchronize_deferu_i_mmap(dp, &mapping->i_mmap);
 	i_mmap_lock_write(mapping);
 	if (unlikely(!RB_EMPTY_ROOT(&mapping->i_mmap)))
 		unmap_mapping_range_tree(&mapping->i_mmap, &details);

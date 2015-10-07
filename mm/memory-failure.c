@@ -55,6 +55,7 @@
 #include <linux/memory_hotplug.h>
 #include <linux/mm_inline.h>
 #include <linux/kfifo.h>
+#include <linux/deferu.h>
 #include "internal.h"
 
 int sysctl_memory_failure_early_kill __read_mostly = 0;
@@ -465,7 +466,7 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	dp = &mapping->deferu;
 
 	mutex_lock(&dp->mutex);
-	synchronize_deferu(dp);
+	synchronize_deferu_i_mmap(dp, &mapping->i_mmap);
 	i_mmap_lock_read(mapping);
 	read_lock(&tasklist_lock);
 	for_each_process(tsk) {

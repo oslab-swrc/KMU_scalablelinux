@@ -34,6 +34,7 @@
 #include <linux/security.h>
 #include <linux/magic.h>
 #include <linux/migrate.h>
+#include <linux/deferu.h>
 
 #include <asm/uaccess.h>
 
@@ -385,7 +386,7 @@ hugetlb_vmtruncate_list(struct rb_root *root, pgoff_t pgoff,
 	struct vm_area_struct *vma;
 
 	mutex_lock(&dp->mutex);
-	synchronize_deferu(dp);
+	//synchronize_deferu_i_mmap(dp, root);
 	vma_interval_tree_foreach(vma, root, pgoff, ULONG_MAX) {
 		unsigned long v_offset;
 
