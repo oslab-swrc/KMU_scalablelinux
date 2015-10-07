@@ -30,7 +30,7 @@ struct deferu_head {
 
 struct deferu_node {
 	void *key;
-	int garbage;
+	atomic_t reference;
 	int op_num;
 	struct llist_node ll_node;
 };

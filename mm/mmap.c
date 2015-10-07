@@ -250,31 +250,20 @@ static void __remove_shared_vm_struct(struct vm_area_struct *vma,
 	if (unlikely(vma->vm_flags & VM_NONLINEAR))
 		list_del_init(&vma->shared.nonlinear);
 	else {
-		struct deferu_node *dnode =
-				kmem_cache_zalloc(deferu_node_cachep, GFP_KERNEL);
-		if (unlikely(dnode == NULL)) {
-			goto done;
-		}
-		dnode->op_num = DEFERU_OP_DEL;
-		dnode->key = vma;
-		deferu_add(dnode, &mapping->deferu);
-
-#if 0
 		struct deferu_node *del_dnode = &vma->dnode->defer_node[DEFERU_OP_DEL];
 		struct deferu_node *add_dnode = &vma->dnode->defer_node[DEFERU_OP_ADD];
 
-		if (atomic_cmpxchg(add_dnode->reference, 1, 0) != 1) {
-			if (atomic_cmpxchg(del_dnode->reference, 0, 1)) {
+		if (atomic_cmpxchg(&add_dnode->reference, 1, 0) != 1) {
+			if (atomic_cmpxchg(&del_dnode->reference, 0, 1) == 0) {
 				del_dnode->op_num = DEFERU_OP_DEL;
+				del_dnode->key = vma;
 				deferu_add(del_dnode, &mapping->deferu);
 			} else {
 				BUG();
 			}
 		}
-#endif
 		//vma_interval_tree_remove(vma, &mapping->i_mmap);
 	}
-done:
 	flush_dcache_mmap_unlock(mapping);
 }
 
@@ -319,46 +308,25 @@ void synchronize_deferu_i_mmap(struct deferu_head *head, struct rb_root *root)
 {
 	struct llist_node *entry;
 	struct deferu_node *dnode, *next;
-	struct deferu_node *nest_dnode;
+	int count = 0;
 
 	if (llist_empty(&head->ll_head))
 		return;
 
 	entry = llist_del_all(&head->ll_head);
 	entry = llist_reverse_order(entry);
-	//pr_info("deferu : optimization operation\n");
+	pr_info("deferu : optimization operation\n");
 	llist_for_each_entry(dnode, entry, ll_node) {
-		if (dnode->op_num == DEFERU_OP_DEL) {
-			llist_for_each_entry(nest_dnode, entry, ll_node) {
-				if (nest_dnode->garbage)
-					continue;
-				if (nest_dnode->op_num == DEFERU_OP_DEL) {
-					if (nest_dnode->key == dnode->key)
-						break;
-					else
-						continue;
-				}
-				/* In case of ADD operation */
-				if (nest_dnode->op_num == DEFERU_OP_ADD &&
-						nest_dnode->key == dnode->key) {
-					dnode->garbage = 1;
-					nest_dnode->garbage = 1;
-					break;
-				}
-			}
-		}
-	}
-
-	//pr_info("deferu : convert operation\n");
-	/* Convert */
-	llist_for_each_entry_safe(dnode, next, entry, ll_node) {
-		if (dnode->op_num == DEFERU_OP_ADD && !dnode->garbage) {
+		if (atomic_read(&dnode->reference) == 0)
+			continue;
+		if (dnode->op_num == DEFERU_OP_ADD) {
 			i_mmap_deferu_add(dnode->key, root);
-		} else if (dnode->op_num == DEFERU_OP_DEL && !dnode->garbage) {
+		} else if (dnode->op_num == DEFERU_OP_DEL) {
 			i_mmap_deferu_del(dnode->key, root);
 		}
-		kmem_cache_free(deferu_node_cachep, dnode);
+		count++;
 	}
+	pr_info("deferu: iteration count :%d\n", count);
 	//pr_info("deferu : schedule_work\n");
 	//schedule_work(&i_mmap_free_wq);
 }
@@ -766,27 +734,17 @@ static void __vma_link_file(struct vm_area_struct *vma)
 		if (unlikely(vma->vm_flags & VM_NONLINEAR))
 			vma_nonlinear_insert(vma, &mapping->i_mmap_nonlinear);
 		else {
-			struct deferu_node *dnode;
-			dnode = kmem_cache_zalloc(deferu_node_cachep, GFP_KERNEL);
-			if (unlikely(dnode == NULL)) {
-				goto done;
-			}
-			dnode->op_num = DEFERU_OP_ADD;
-			dnode->key = vma;
-			deferu_add(dnode, &mapping->deferu);
-#if 0
 			struct deferu_node *add_dnode =
 					&vma->dnode->defer_node[DEFERU_OP_ADD];
-			if (atomic_cmpxchg(add_dnode->reference, 0, 1) == 0) {
+			if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
 				add_dnode->op_num = DEFERU_OP_ADD;
+				add_dnode->key = vma;
 				deferu_add(add_dnode, &mapping->deferu);
 			} else {
 				BUG();
 			}
 			//vma_interval_tree_insert(vma, &mapping->i_mmap);
-#endif
 		}
-done:
 		flush_dcache_mmap_unlock(mapping);
 	}
 }
@@ -959,7 +917,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 		if (adjust_next)
 			anon_vma_interval_tree_pre_update_vma(next);
 	}
-#if 1
+#if 0
 	if (root) {
 		struct deferu_node *dnode;
 		flush_dcache_mmap_lock(mapping);
@@ -991,7 +949,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 		next->vm_start += adjust_next << PAGE_SHIFT;
 		next->vm_pgoff += adjust_next;
 	}
-#if 1
+#if 0
 	if (root) {
 		struct deferu_node *dnode;
 		if (adjust_next) {
@@ -1762,6 +1720,12 @@ munmap_back:
 	vma->vm_page_prot = vm_get_page_prot(vm_flags);
 	vma->vm_pgoff = pgoff;
 	INIT_LIST_HEAD(&vma->anon_vma_chain);
+
+	vma->dnode = kmem_cache_zalloc(deferu_i_mmap_cachep, GFP_KERNEL);
+	if (!vma->dnode) {
+		error = -ENOMEM;
+		goto unacct_error;
+	}
 
 	if (file) {
 		if (vm_flags & VM_DENYWRITE) {
@@ -2637,6 +2601,12 @@ static int __split_vma(struct mm_struct *mm, struct vm_area_struct *vma,
 	if (err)
 		goto out_free_vma;
 
+
+	new->dnode = kmem_cache_zalloc(deferu_i_mmap_cachep, GFP_KERNEL);
+	if (!new->dnode) {
+		goto out_err;
+	}
+
 	err = anon_vma_clone(new, vma);
 	if (err)
 		goto out_free_mpol;
@@ -2871,6 +2841,12 @@ static unsigned long do_brk(unsigned long addr, unsigned long len)
 		return -ENOMEM;
 	}
 
+	vma->dnode = kmem_cache_zalloc(deferu_i_mmap_cachep, GFP_KERNEL);
+	if (!vma->dnode) {
+		vm_unacct_memory(len >> PAGE_SHIFT);
+		return -ENOMEM;
+	}
+
 	INIT_LIST_HEAD(&vma->anon_vma_chain);
 	vma->vm_mm = mm;
 	vma->vm_start = addr;
@@ -3052,6 +3028,8 @@ struct vm_area_struct *copy_vma(struct vm_area_struct **vmap,
 				goto out_free_vma;
 			INIT_LIST_HEAD(&new_vma->anon_vma_chain);
 
+			new_vma->dnode = kmem_cache_zalloc(deferu_i_mmap_cachep, GFP_KERNEL);
+
 			if (anon_vma_clone(new_vma, vma))
 				goto out_free_mempol;
 			if (new_vma->vm_file)
@@ -3169,6 +3147,10 @@ static struct vm_area_struct *__install_special_mapping(
 
 	vma->vm_ops = ops;
 	vma->vm_private_data = priv;
+
+	vma->dnode = kmem_cache_zalloc(deferu_i_mmap_cachep, GFP_KERNEL);
+	if (unlikely(vma->dnode == NULL))
+		return ERR_PTR(-ENOMEM);
 
 	ret = insert_vm_struct(mm, vma);
 	if (ret)
