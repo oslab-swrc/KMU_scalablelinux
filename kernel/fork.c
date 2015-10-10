@@ -367,6 +367,7 @@ free_tsk:
 }
 
 #ifdef CONFIG_MMU
+extern void free_vma(struct vm_area_struct *vma);
 static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 {
 	struct vm_area_struct *mpnt, *tmp, *prev, **pprev;
@@ -431,8 +432,10 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 		file = tmp->vm_file;
 
 		tmp->dnode = kmem_cache_zalloc(deferu_i_mmap_cachep, GFP_KERNEL);
-		if (!tmp->dnode)
+		if (!tmp->dnode) {
+			BUG();
 			goto fail_nomem;
+		}
 
 		if (file) {
 			struct inode *inode = file_inode(file);
@@ -441,7 +444,7 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 			get_file(file);
 			if (tmp->vm_flags & VM_DENYWRITE)
 				atomic_dec(&inode->i_writecount);
-			//i_mmap_lock_write(mapping);
+			i_mmap_lock_write(mapping);
 			if (tmp->vm_flags & VM_SHARED)
 				atomic_inc(&mapping->i_mmap_writable);
 			flush_dcache_mmap_lock(mapping);
@@ -453,7 +456,7 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 				struct deferu_node *add_dnode =
 						&tmp->dnode->defer_node[DEFERU_OP_ADD];
 				if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
-					add_dnode->op_num = DEFERU_OP_ADD;
+					add_dnode->op_num = DEFERU_OP_ADD_AFTER;
 					add_dnode->key = tmp;
 					deferu_add(add_dnode, &mapping->deferu);
 				} else {
@@ -463,7 +466,7 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 				//			&mapping->i_mmap);
 			}
 			flush_dcache_mmap_unlock(mapping);
-			//i_mmap_unlock_write(mapping);
+			i_mmap_unlock_write(mapping);
 		}
 
 		/*
@@ -507,7 +510,8 @@ out:
 fail_nomem_anon_vma_fork:
 	mpol_put(vma_policy(tmp));
 fail_nomem_policy:
-	kmem_cache_free(vm_area_cachep, tmp);
+	free_vma(tmp);
+	//kmem_cache_free(vm_area_cachep, tmp);
 fail_nomem:
 	retval = -ENOMEM;
 	vm_unacct_memory(charge);

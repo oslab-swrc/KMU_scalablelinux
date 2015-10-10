@@ -13,6 +13,7 @@
 
 #define DEFERU_OP_ADD 0
 #define DEFERU_OP_DEL 1
+#define DEFERU_OP_ADD_AFTER 2
 
 struct deferu_operations {
 	void (*add)(void *node, void *head);
@@ -36,6 +37,9 @@ struct deferu_node {
 };
 
 struct deferu_i_mmap_node {
+	int used;
+	int garbage;
+	struct llist_node gnode;
 	struct deferu_node defer_node[2]; /* 0 : add op, 1 : del op */
 };
 
@@ -44,7 +48,6 @@ void synchronize_deferu_i_mmap(struct deferu_head *head, struct rb_root *root);
 static inline void init_deferu_head(struct deferu_head *dp,
 		struct deferu_operations *ops)
 {
-	pr_info("@@ : init_deferu_head\n");
 	dp->completed = 0;
 	init_llist_head(&dp->ll_head);
 	mutex_init(&dp->mutex);

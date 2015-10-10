@@ -286,6 +286,7 @@ struct vm_area_struct {
 	} shared;
 
 	struct deferu_i_mmap_node *dnode;
+	struct llist_node llist;
 
 	/*
 	 * A file's MAP_PRIVATE vma can be in both i_mmap tree and anon_vma

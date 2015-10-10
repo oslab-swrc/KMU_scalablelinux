@@ -348,6 +348,7 @@ void inc_nlink(struct inode *inode)
 EXPORT_SYMBOL(inc_nlink);
 
 extern struct deferu_operations i_mmap_deferu_operations;
+extern void i_mmap_free_work_func(struct work_struct *w);
 
 void address_space_init_once(struct address_space *mapping)
 {
@@ -359,6 +360,7 @@ void address_space_init_once(struct address_space *mapping)
 	spin_lock_init(&mapping->private_lock);
 	mapping->i_mmap = RB_ROOT;
 	init_deferu_head(&mapping->deferu, &i_mmap_deferu_operations);
+	INIT_WORK(&mapping->deferu_wk, i_mmap_free_work_func);
 	INIT_LIST_HEAD(&mapping->i_mmap_nonlinear);
 }
 EXPORT_SYMBOL(address_space_init_once);
