@@ -455,15 +455,19 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 			else {
 				struct deferu_node *add_dnode =
 						&tmp->dnode->defer_node[DEFERU_OP_ADD];
-				if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
-					add_dnode->op_num = DEFERU_OP_ADD_AFTER;
-					add_dnode->key = tmp;
-					deferu_add(add_dnode, &mapping->deferu);
-				} else {
-					BUG();
+				struct deferu_node *del_dnode =
+						&tmp->dnode->defer_node[DEFERU_OP_DEL];
+				if (atomic_cmpxchg(&del_dnode->reference, 1, 0) != 1) {
+					if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
+						add_dnode->op_num = DEFERU_OP_ADD;
+						add_dnode->key = tmp;
+						deferu_add(add_dnode, &mapping->deferu);
+					} else {
+						BUG();
+					}
 				}
-				//vma_interval_tree_insert_after(tmp, mpnt,
-				//			&mapping->i_mmap);
+			//	vma_interval_tree_insert_after(tmp, mpnt,
+			//				&mapping->i_mmap);
 			}
 			flush_dcache_mmap_unlock(mapping);
 			i_mmap_unlock_write(mapping);
