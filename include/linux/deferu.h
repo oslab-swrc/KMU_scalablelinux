@@ -39,6 +39,7 @@ struct deferu_node {
 struct deferu_i_mmap_node {
 	int used;
 	int garbage;
+	int free;
 	struct llist_node gnode;
 	struct deferu_node defer_node[2]; /* 0 : add op, 1 : del op */
 };
