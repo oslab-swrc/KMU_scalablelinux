@@ -380,13 +380,11 @@ static void hugetlbfs_evict_inode(struct inode *inode)
 }
 
 static inline void
-hugetlb_vmtruncate_list(struct rb_root *root, pgoff_t pgoff,
-		struct deferu_head  *dp)
+hugetlb_vmtruncate_list(struct rb_root *root, pgoff_t pgoff)
 {
 	struct vm_area_struct *vma;
 
-	mutex_lock(&dp->mutex);
-	//synchronize_deferu_i_mmap(dp, root);
+	synchronize_deferu_i_mmap();
 	vma_interval_tree_foreach(vma, root, pgoff, ULONG_MAX) {
 		unsigned long v_offset;
 
@@ -404,8 +402,6 @@ hugetlb_vmtruncate_list(struct rb_root *root, pgoff_t pgoff,
 		unmap_hugepage_range(vma, vma->vm_start + v_offset,
 				     vma->vm_end, NULL);
 	}
-	dp->completed = 1;
-	mutex_unlock(&dp->mutex);
 }
 
 static int hugetlb_vmtruncate(struct inode *inode, loff_t offset)
@@ -420,7 +416,7 @@ static int hugetlb_vmtruncate(struct inode *inode, loff_t offset)
 	i_size_write(inode, offset);
 	i_mmap_lock_write(mapping);
 	if (!RB_EMPTY_ROOT(&mapping->i_mmap))
-		hugetlb_vmtruncate_list(&mapping->i_mmap, pgoff, &mapping->deferu);
+		hugetlb_vmtruncate_list(&mapping->i_mmap, pgoff);
 	i_mmap_unlock_write(mapping);
 	truncate_hugepages(inode, offset);
 	return 0;

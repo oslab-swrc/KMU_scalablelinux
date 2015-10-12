@@ -33,33 +33,18 @@ struct deferu_node {
 	void *key;
 	atomic_t reference;
 	int op_num;
+	int garbage;
+	struct rb_root *root;
 	struct llist_node ll_node;
 };
 
 struct deferu_i_mmap_node {
 	int used;
-	int garbage;
-	int free;
-	struct llist_node gnode;
 	struct deferu_node defer_node[2]; /* 0 : add op, 1 : del op */
 };
 
-void synchronize_deferu_i_mmap(struct deferu_head *head, struct rb_root *root);
-
-static inline void init_deferu_head(struct deferu_head *dp,
-		struct deferu_operations *ops)
-{
-	dp->completed = 0;
-	init_llist_head(&dp->ll_head);
-	mutex_init(&dp->mutex);
-	dp->du_ops = ops;
-	dp->init = 0x55;
-}
-
-static inline bool deferu_add(struct deferu_node *new, struct deferu_head *head)
-{
-	return llist_add(&new->ll_node, &head->ll_head);
-}
+bool deferu_add_i_mmap(struct deferu_node *dnode);
+void synchronize_deferu_i_mmap(void);
 
 void i_mmap_deferu_add(struct vm_area_struct *vma, struct rb_root *root);
 void i_mmap_deferu_del(struct vm_area_struct *vma, struct rb_root *root);

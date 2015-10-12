@@ -285,7 +285,7 @@ struct vm_area_struct {
 		struct list_head nonlinear;
 	} shared;
 
-	struct deferu_i_mmap_node *dnode;
+	struct deferu_i_mmap_node dnode;
 	struct llist_node llist;
 
 	/*

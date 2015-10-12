@@ -198,9 +198,6 @@ struct kmem_cache *fs_cachep;
 /* SLAB cache for vm_area_struct structures */
 struct kmem_cache *vm_area_cachep;
 
-/* SLAB cache for vm_area_struct structures */
-struct kmem_cache *deferu_i_mmap_cachep;
-
 /* SLAB cache for mm_struct structures (tsk->mm) */
 static struct kmem_cache *mm_cachep;
 
@@ -430,12 +427,7 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 		tmp->vm_flags &= ~VM_LOCKED;
 		tmp->vm_next = tmp->vm_prev = NULL;
 		file = tmp->vm_file;
-
-		tmp->dnode = kmem_cache_zalloc(deferu_i_mmap_cachep, GFP_KERNEL);
-		if (!tmp->dnode) {
-			BUG();
-			goto fail_nomem;
-		}
+		memset(&tmp->dnode, 0, sizeof(tmp->dnode));
 
 		if (file) {
 			struct inode *inode = file_inode(file);
@@ -453,21 +445,25 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 				vma_nonlinear_insert(tmp,
 						&mapping->i_mmap_nonlinear);
 			else {
+#if 1
 				struct deferu_node *add_dnode =
-						&tmp->dnode->defer_node[DEFERU_OP_ADD];
+						&tmp->dnode.defer_node[DEFERU_OP_ADD];
 				struct deferu_node *del_dnode =
-						&tmp->dnode->defer_node[DEFERU_OP_DEL];
+						&tmp->dnode.defer_node[DEFERU_OP_DEL];
 				if (atomic_cmpxchg(&del_dnode->reference, 1, 0) != 1) {
 					if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
+						tmp->dnode.used = 0x01;
 						add_dnode->op_num = DEFERU_OP_ADD;
 						add_dnode->key = tmp;
-						deferu_add(add_dnode, &mapping->deferu);
+						add_dnode->root = &mapping->i_mmap;
+						deferu_add_i_mmap(add_dnode);
 					} else {
 						BUG();
 					}
 				}
-			//	vma_interval_tree_insert_after(tmp, mpnt,
-			//				&mapping->i_mmap);
+#endif
+	//			vma_interval_tree_insert_after(tmp, mpnt,
+	//						&mapping->i_mmap);
 			}
 			flush_dcache_mmap_unlock(mapping);
 			i_mmap_unlock_write(mapping);
@@ -1814,7 +1810,6 @@ void __init proc_caches_init(void)
 			sizeof(struct mm_struct), ARCH_MIN_MMSTRUCT_ALIGN,
 			SLAB_HWCACHE_ALIGN|SLAB_PANIC|SLAB_NOTRACK, NULL);
 	vm_area_cachep = KMEM_CACHE(vm_area_struct, SLAB_PANIC);
-	deferu_i_mmap_cachep = KMEM_CACHE(deferu_i_mmap_node, SLAB_PANIC);
 	mmap_init();
 	nsproxy_cache_init();
 }
