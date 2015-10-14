@@ -1779,7 +1779,6 @@ struct vm_area_struct *vma_interval_tree_iter_next(struct vm_area_struct *node,
 static inline void vma_nonlinear_insert(struct vm_area_struct *vma,
 					struct list_head *list)
 {
-	BUG();
 	list_add_tail(&vma->shared.nonlinear, list);
 }
 

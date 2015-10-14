@@ -441,10 +441,12 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 				atomic_inc(&mapping->i_mmap_writable);
 			flush_dcache_mmap_lock(mapping);
 			/* insert tmp into the share list, just after mpnt */
-			if (unlikely(tmp->vm_flags & VM_NONLINEAR))
+			if (unlikely(tmp->vm_flags & VM_NONLINEAR)) {
+				i_mmap_lock_write(mapping);
 				vma_nonlinear_insert(tmp,
 						&mapping->i_mmap_nonlinear);
-			else {
+				i_mmap_unlock_write(mapping);
+			} else {
 #if 1
 				struct deferu_node *add_dnode =
 						&tmp->dnode.defer_node[DEFERU_OP_ADD];

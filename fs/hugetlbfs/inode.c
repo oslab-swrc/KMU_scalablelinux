@@ -384,7 +384,6 @@ hugetlb_vmtruncate_list(struct rb_root *root, pgoff_t pgoff)
 {
 	struct vm_area_struct *vma;
 
-	synchronize_deferu_i_mmap();
 	vma_interval_tree_foreach(vma, root, pgoff, ULONG_MAX) {
 		unsigned long v_offset;
 
@@ -416,6 +415,7 @@ static int hugetlb_vmtruncate(struct inode *inode, loff_t offset)
 	i_size_write(inode, offset);
 	//i_mmap_lock_write(mapping);
 	deferu_add_i_mmap_lock();
+	synchronize_deferu_i_mmap();
 	if (!RB_EMPTY_ROOT(&mapping->i_mmap))
 		hugetlb_vmtruncate_list(&mapping->i_mmap, pgoff);
 	deferu_add_i_mmap_unlock();

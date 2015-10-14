@@ -251,9 +251,11 @@ static void __remove_shared_vm_struct(struct vm_area_struct *vma,
 		mapping_unmap_writable(mapping);
 
 	flush_dcache_mmap_lock(mapping);
-	if (unlikely(vma->vm_flags & VM_NONLINEAR))
+	if (unlikely(vma->vm_flags & VM_NONLINEAR)) {
+		i_mmap_lock_write(mapping);
 		list_del_init(&vma->shared.nonlinear);
-	else {
+		i_mmap_unlock_write(mapping);
+	} else {
 		struct deferu_node *del_dnode = &vma->dnode.defer_node[DEFERU_OP_DEL];
 		struct deferu_node *add_dnode = &vma->dnode.defer_node[DEFERU_OP_ADD];
 
@@ -779,9 +781,11 @@ static void __vma_link_file(struct vm_area_struct *vma)
 			atomic_inc(&mapping->i_mmap_writable);
 
 		flush_dcache_mmap_lock(mapping);
-		if (unlikely(vma->vm_flags & VM_NONLINEAR))
+		if (unlikely(vma->vm_flags & VM_NONLINEAR)) {
+			i_mmap_lock_write(mapping);
 			vma_nonlinear_insert(vma, &mapping->i_mmap_nonlinear);
-		else {
+			i_mmap_unlock_write(mapping);
+		} else {
 			struct deferu_node *add_dnode =
 					&vma->dnode.defer_node[DEFERU_OP_ADD];
 			struct deferu_node *del_dnode =
@@ -3324,8 +3328,7 @@ static void vm_lock_mapping(struct mm_struct *mm, struct address_space *mapping)
 		 */
 		if (test_and_set_bit(AS_MM_ALL_LOCKS, &mapping->flags))
 			BUG();
-		deferu_add_i_mmap_lock();
-	//	down_write_nest_lock(&mapping->i_mmap_rwsem, &mm->mmap_sem);
+		down_write_nest_lock(&mapping->i_mmap_rwsem, &mm->mmap_sem);
 	}
 }
 
@@ -3422,8 +3425,7 @@ static void vm_unlock_mapping(struct address_space *mapping)
 		 * because we hold the mm_all_locks_mutex.
 		 */
 
-		deferu_add_i_mmap_unlock();
-//		i_mmap_unlock_write(mapping);
+		i_mmap_unlock_write(mapping);
 		if (!test_and_clear_bit(AS_MM_ALL_LOCKS,
 					&mapping->flags))
 			BUG();
