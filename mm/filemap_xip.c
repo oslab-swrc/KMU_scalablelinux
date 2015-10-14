@@ -175,9 +175,9 @@ static void __xip_unmap(struct address_space * mapping, unsigned long pgoff)
 		return;
 
 retry:
-	deferu_add_i_mmap_lock();
+	//deferu_add_i_mmap_lock();
 	synchronize_deferu_i_mmap();
-//	i_mmap_lock_read(mapping);
+	i_mmap_lock_read(mapping);
 	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		pte_t *pte, pteval;
 		spinlock_t *ptl;
@@ -200,9 +200,9 @@ retry:
 			page_cache_release(page);
 		}
 	}
-	deferu_add_i_mmap_unlock();
+//	deferu_add_i_mmap_unlock();
 
-//	i_mmap_unlock_read(mapping);
+	i_mmap_unlock_read(mapping);
 
 	if (locked) {
 		mutex_unlock(&xip_sparse_mutex);

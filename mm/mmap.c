@@ -284,9 +284,9 @@ void unlink_file_vma(struct vm_area_struct *vma)
 
 	if (file) {
 		struct address_space *mapping = file->f_mapping;
-		//i_mmap_lock_write(mapping);
+		i_mmap_lock_write(mapping);
 		__remove_shared_vm_struct(vma, file, mapping, 1);
-		//i_mmap_unlock_write(mapping);
+		i_mmap_unlock_write(mapping);
 	}
 }
 
@@ -317,6 +317,7 @@ void synchronize_deferu_i_mmap(void)
 
 	entry = llist_del_all(&i_mmap_deferu_list);
 	entry = llist_reverse_order(entry);
+	//deferu_add_i_mmap_lock();
 	llist_for_each_entry(dnode, entry, ll_node) {
 		vma = dnode->key;
 		if (atomic_cmpxchg(&dnode->reference, 1, 0) == 1) {
@@ -339,6 +340,7 @@ void synchronize_deferu_i_mmap(void)
 			}
 		}
 	}
+	//deferu_add_i_mmap_unlock();
 }
 
 void free_vma(struct vm_area_struct *vma)
@@ -822,14 +824,14 @@ static void vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
 
 	if (vma->vm_file) {
 		mapping = vma->vm_file->f_mapping;
-		//i_mmap_lock_write(mapping);
+		i_mmap_lock_write(mapping);
 	}
 
 	__vma_link(mm, vma, prev, rb_link, rb_parent);
 	__vma_link_file(vma);
 
 	if (mapping)
-		//i_mmap_unlock_write(mapping);
+		i_mmap_unlock_write(mapping);
 
 	mm->map_count++;
 	validate_mm(mm);
@@ -946,7 +948,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 							next->vm_end);
 		}
 
-		//i_mmap_lock_write(mapping);
+		i_mmap_lock_write(mapping);
 		if (insert) {
 			/*
 			 * Put into interval tree now, so instantiated pages
@@ -1098,8 +1100,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 		anon_vma_unlock_write(anon_vma);
 	}
 	if (mapping)
-		;
-		//i_mmap_unlock_write(mapping);
+		i_mmap_unlock_write(mapping);
 
 	if (root) {
 		uprobe_mmap(vma);
@@ -3324,8 +3325,8 @@ static void vm_lock_mapping(struct mm_struct *mm, struct address_space *mapping)
 		 */
 		if (test_and_set_bit(AS_MM_ALL_LOCKS, &mapping->flags))
 			BUG();
-		deferu_add_i_mmap_lock();
-	//	down_write_nest_lock(&mapping->i_mmap_rwsem, &mm->mmap_sem);
+//		deferu_add_i_mmap_lock();
+		down_write_nest_lock(&mapping->i_mmap_rwsem, &mm->mmap_sem);
 	}
 }
 
@@ -3422,8 +3423,8 @@ static void vm_unlock_mapping(struct address_space *mapping)
 		 * because we hold the mm_all_locks_mutex.
 		 */
 
-		deferu_add_i_mmap_unlock();
-//		i_mmap_unlock_write(mapping);
+//		deferu_add_i_mmap_unlock();
+		i_mmap_unlock_write(mapping);
 		if (!test_and_clear_bit(AS_MM_ALL_LOCKS,
 					&mapping->flags))
 			BUG();
