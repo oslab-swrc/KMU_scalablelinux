@@ -436,7 +436,7 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 			get_file(file);
 			if (tmp->vm_flags & VM_DENYWRITE)
 				atomic_dec(&inode->i_writecount);
-			i_mmap_lock_write(mapping);
+			//i_mmap_lock_write(mapping);
 			if (tmp->vm_flags & VM_SHARED)
 				atomic_inc(&mapping->i_mmap_writable);
 			flush_dcache_mmap_lock(mapping);
@@ -452,11 +452,13 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 						&tmp->dnode.defer_node[DEFERU_OP_DEL];
 				if (atomic_cmpxchg(&del_dnode->reference, 1, 0) != 1) {
 					if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
-						tmp->dnode.used = 0x01;
-						add_dnode->op_num = DEFERU_OP_ADD;
-						add_dnode->key = tmp;
-						add_dnode->root = &mapping->i_mmap;
-						deferu_add_i_mmap(add_dnode);
+						if (!(ACCESS_ONCE(tmp->dnode.used) & 1 << DEFERU_OP_ADD)) {
+							tmp->dnode.used |= 1 << DEFERU_OP_ADD;
+							add_dnode->op_num = DEFERU_OP_ADD;
+							add_dnode->key = tmp;
+							add_dnode->root = &mapping->i_mmap;
+							deferu_add_i_mmap(add_dnode);
+						}
 					} else {
 						BUG();
 					}
@@ -466,7 +468,7 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 	//						&mapping->i_mmap);
 			}
 			flush_dcache_mmap_unlock(mapping);
-			i_mmap_unlock_write(mapping);
+			//i_mmap_unlock_write(mapping);
 		}
 
 		/*

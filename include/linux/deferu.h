@@ -46,6 +46,9 @@ struct deferu_i_mmap_node {
 bool deferu_add_i_mmap(struct deferu_node *dnode);
 void synchronize_deferu_i_mmap(void);
 
+void deferu_add_i_mmap_lock(void);
+void deferu_add_i_mmap_unlock(void);
+
 void i_mmap_deferu_add(struct vm_area_struct *vma, struct rb_root *root);
 void i_mmap_deferu_del(struct vm_area_struct *vma, struct rb_root *root);
 
