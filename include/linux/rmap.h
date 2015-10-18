@@ -56,9 +56,7 @@ struct anon_vma {
 	 * is serialized by a system wide lock only visible to
 	 * mm_take_all_locks() (mm_all_locks_mutex).
 	 */
-	struct lockfree_list_head	head;
-	struct lockfree_list_node	head_node;
-	struct lockfree_list_node	tail_node;
+	struct rb_root rb_root;	/* Interval tree of private "related" vmas */
 };
 
 /*
@@ -79,7 +77,8 @@ struct anon_vma_chain {
 	struct anon_vma *anon_vma;
 	struct llist_node llnode; /* delayed free */
 	struct lockfree_list_node same_vma; /* locked by mmap_sem & page_table_lock */
-	struct lockfree_list_node same_anon_vma; /* locked by anon_vma->mutex */
+	struct rb_node rb;			/* locked by anon_vma->rwsem */
+	unsigned long rb_subtree_last;
 #ifdef CONFIG_DEBUG_VM_RB
 	unsigned long cached_vma_start, cached_vma_last;
 #endif

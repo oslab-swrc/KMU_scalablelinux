@@ -140,9 +140,7 @@ static void anon_vma_chain_link(struct vm_area_struct *vma,
 	LOCKFREE_LIST_SAVE_KEY(avc, same_vma);
 	LOCKFREE_LIST_CLEAR_GC(avc, same_vma);
 	lockfree_list_add(&avc->same_vma, &vma->anon_vma_chain);
-	LOCKFREE_LIST_SAVE_KEY(avc, same_anon_vma);
-	LOCKFREE_LIST_CLEAR_GC(avc, same_anon_vma);
-	lockfree_list_add(&avc->same_anon_vma, &anon_vma->head);
+	anon_vma_interval_tree_insert(avc, &anon_vma->rb_root);
 }
 
 /**
@@ -363,7 +361,7 @@ static void anon_vma_free_work_func(struct work_struct *w)
 
 	entry = llist_del_all(&anon_vma_freelist);
 	llist_for_each_entry_safe(avc, avc_next, entry, llnode) {
-		if (avc->same_vma.garbage && avc->same_anon_vma.garbage)
+		if (avc->same_vma.garbage)
 			anon_vma_chain_free(avc);
 		else
 			llist_add(&avc->llnode, &anon_vma_freelist);
@@ -390,15 +388,15 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 			continue;
 
 //		root = lock_anon_vma_root(root, anon_vma);
-		lockfree_list_del(&avc->same_anon_vma, &anon_vma->head);
-
+		anon_vma_interval_tree_remove(avc, &anon_vma->rb_root);
 		/*
 		 * Leave empty anon_vmas on the list - we'll need
 		 * to free them outside the lock.
 		 */
-		if (lockfree_list_empty(&anon_vma->head)) {
+		if (RB_EMPTY_ROOT(&anon_vma->rb_root)) {
 			continue;
 		}
+
 		lockfree_list_del(&avc->same_vma, &vma->anon_vma_chain);
 		/* Need for add avc to llist */
 		/* Add global delayed free list */
@@ -442,8 +440,7 @@ static void anon_vma_ctor(void *data)
 
 	init_rwsem(&anon_vma->rwsem);
 	atomic_set(&anon_vma->refcount, 0);
-	init_lockfree_list_head(&anon_vma->head, &anon_vma->head_node,
-			&anon_vma->tail_node);
+	anon_vma->rb_root = RB_ROOT;
 }
 
 void __init anon_vma_init(void)
@@ -1709,29 +1706,18 @@ static struct anon_vma *rmap_walk_anon_lock(struct page *page,
 static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 {
 	struct anon_vma *anon_vma;
+	pgoff_t pgoff;
 	struct anon_vma_chain *avc;
 	int ret = SWAP_AGAIN;
-	struct lockfree_list_node *node;
-	struct lockfree_list_node *onode;
 
 	anon_vma = rmap_walk_anon_lock(page, rwc);
 	if (!anon_vma)
 		return ret;
-	node = (struct lockfree_list_node *)get_unmarked_ref((long)anon_vma->head_node.next);
-	onode = anon_vma->head_node.next;
 
-	pr_debug("rmap_walk_anon\n");
-	lockfree_list_for_each_entry(avc, node, same_anon_vma, onode) {
-		struct vm_area_struct *vma;
-		unsigned long address;
-
-		if (&avc->same_anon_vma == &anon_vma->tail_node)
-			break;
-		if (is_marked_ref((long)onode))
-			continue;
-
-		vma = avc->vma;
-		address = vma_address(page, vma);
+	pgoff = page_to_pgoff(page);
+	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff, pgoff) {
+		struct vm_area_struct *vma = avc->vma;
+		unsigned long address = vma_address(page, vma);
 
 		if (rwc->invalid_vma && rwc->invalid_vma(vma, rwc->arg))
 			continue;
