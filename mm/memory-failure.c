@@ -56,6 +56,7 @@
 #include <linux/mm_inline.h>
 #include <linux/kfifo.h>
 #include <linux/deferu.h>
+#include <linux/lockfree_list.h>
 #include "internal.h"
 
 int sysctl_memory_failure_early_kill __read_mostly = 0;
@@ -425,22 +426,26 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 	struct vm_area_struct *vma;
 	struct task_struct *tsk;
 	struct anon_vma *av;
-	pgoff_t pgoff;
 
 	av = page_lock_anon_vma_read(page);
 	if (av == NULL)	/* Not actually mapped anymore */
 		return;
 
-	pgoff = page_to_pgoff(page);
 	read_lock(&tasklist_lock);
 	for_each_process (tsk) {
 		struct anon_vma_chain *vmac;
 		struct task_struct *t = task_early_kill(tsk, force_early);
+		struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)av->head_node.next);
+		struct lockfree_list_node *onode = av->head_node.next;
 
 		if (!t)
 			continue;
-		anon_vma_interval_tree_foreach(vmac, &av->rb_root,
-					       pgoff, pgoff) {
+		lockfree_list_for_each_entry(vmac, node, same_anon_vma, onode) {
+			if (&vmac->same_anon_vma == &av->tail_node)
+				break;
+			if (is_marked_ref((long)onode))
+				continue;
+
 			vma = vmac->vma;
 			if (!page_mapped_in_vma(page, vma))
 				continue;

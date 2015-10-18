@@ -18,6 +18,7 @@
 #include <linux/buffer_head.h> /* for inode_has_buffers */
 #include <linux/ratelimit.h>
 #include <linux/list_lru.h>
+#include <linux/lockfree_list.h>
 #include <linux/deferu.h>
 #include "internal.h"
 

@@ -41,6 +41,8 @@
 #include <linux/notifier.h>
 #include <linux/memory.h>
 #include <linux/printk.h>
+#include <linux/lockfree_list.h>
+#include <linux/llist.h>
 
 #include <asm/uaccess.h>
 #include <asm/cacheflush.h>
@@ -633,38 +635,6 @@ static void vma_rb_erase(struct vm_area_struct *vma, struct rb_root *root)
 	rb_erase_augmented(&vma->vm_rb, root, &vma_gap_callbacks);
 }
 
-/*
- * vma has some anon_vma assigned, and is already inserted on that
- * anon_vma's interval trees.
- *
- * Before updating the vma's vm_start / vm_end / vm_pgoff fields, the
- * vma must be removed from the anon_vma's interval trees using
- * anon_vma_interval_tree_pre_update_vma().
- *
- * After the update, the vma will be reinserted using
- * anon_vma_interval_tree_post_update_vma().
- *
- * The entire update must be protected by exclusive mmap_sem and by
- * the root anon_vma's mutex.
- */
-static inline void
-anon_vma_interval_tree_pre_update_vma(struct vm_area_struct *vma)
-{
-	struct anon_vma_chain *avc;
-
-	list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
-		anon_vma_interval_tree_remove(avc, &avc->anon_vma->rb_root);
-}
-
-static inline void
-anon_vma_interval_tree_post_update_vma(struct vm_area_struct *vma)
-{
-	struct anon_vma_chain *avc;
-
-	list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
-		anon_vma_interval_tree_insert(avc, &avc->anon_vma->rb_root);
-}
-
 static int find_vma_links(struct mm_struct *mm, unsigned long addr,
 		unsigned long end, struct vm_area_struct **pprev,
 		struct rb_node ***rb_link, struct rb_node **rb_parent)
@@ -964,53 +934,18 @@ again:			remove_next = 1 + (end > next->vm_end);
 
 	vma_adjust_trans_huge(vma, start, end, adjust_next);
 
-	anon_vma = vma->anon_vma;
-	if (!anon_vma && adjust_next)
-		anon_vma = next->anon_vma;
-	if (anon_vma) {
+
+	if (vma->anon_vma && (importer || start != vma->vm_start)) {
+	    anon_vma = vma->anon_vma;
 		VM_BUG_ON_VMA(adjust_next && next->anon_vma &&
 			  anon_vma != next->anon_vma, next);
-		anon_vma_lock_write(anon_vma);
-		anon_vma_interval_tree_pre_update_vma(vma);
-		if (adjust_next)
-			anon_vma_interval_tree_pre_update_vma(next);
+	} else if (adjust_next && next->anon_vma)
+	    anon_vma = next->anon_vma;
+	if (anon_vma) {
+		anon_vma_lock_read(anon_vma);
+		pr_debug("anon_vma_lock_write: [%s]\n", __func__);
 	}
 
-#if 0
-	if (root) {
-		struct deferu_node *del_dnode = &vma->dnode.defer_node[DEFERU_OP_DEL];
-		struct deferu_node *add_dnode = &vma->dnode.defer_node[DEFERU_OP_ADD];
-		flush_dcache_mmap_lock(mapping);
-		if (atomic_cmpxchg(&add_dnode->reference, 1, 0) != 1) {
-			if (atomic_cmpxchg(&del_dnode->reference, 0, 1) == 0) {
-				del_dnode->op_num = DEFERU_OP_DEL;
-				del_dnode->key = vma;
-				del_dnode->root = root;
-				deferu_add_i_mmap(del_dnode);
-				vma->dnode.used |= 1 << DEFERU_OP_DEL ;
-			} else {
-				BUG();
-			}
-		}
-		//vma_interval_tree_remove(vma, root);
-		if (adjust_next) {
-			struct deferu_node *del_dnode2 = &next->dnode.defer_node[DEFERU_OP_DEL];
-			struct deferu_node *add_dnode2 = &next->dnode.defer_node[DEFERU_OP_ADD];
-			if (atomic_cmpxchg(&add_dnode2->reference, 1, 0) != 1) {
-				if (atomic_cmpxchg(&del_dnode2->reference, 0, 1) == 0) {
-					del_dnode2->op_num = DEFERU_OP_DEL;
-					del_dnode2->key = next;
-					del_dnode2->root = root;
-					deferu_add_i_mmap(del_dnode2);
-					next->dnode.used |= 1 << DEFERU_OP_DEL ;
-				} else {
-					BUG();
-				}
-			}
-			//vma_interval_tree_remove(next, root);
-		}
-	}
-#endif
 	if (start != vma->vm_start) {
 		vma->vm_start = start;
 		start_changed = true;
@@ -1025,49 +960,6 @@ again:			remove_next = 1 + (end > next->vm_end);
 		next->vm_pgoff += adjust_next;
 	}
 
-#if 0
-	if (root) {
-		struct deferu_node *add_dnode;
-		struct deferu_node *del_dnode;
-		if (adjust_next) {
-			struct deferu_node *add_dnode2 =
-					&next->dnode.defer_node[DEFERU_OP_ADD];
-			struct deferu_node *del_dnode2 =
-					&next->dnode.defer_node[DEFERU_OP_DEL];
-			if (atomic_cmpxchg(&del_dnode2->reference, 1, 0) != 1) {
-				if (atomic_cmpxchg(&add_dnode2->reference, 0, 1) == 0) {
-					if (!(ACCESS_ONCE(next->dnode.used) & 1 << DEFERU_OP_ADD)) {
-						add_dnode2->op_num = DEFERU_OP_ADD;
-						add_dnode2->key = vma;
-						add_dnode2->root = root;
-						deferu_add_i_mmap(add_dnode2);
-					}
-					next->dnode.used |= 1 << DEFERU_OP_ADD;
-				} else {
-					BUG();
-				}
-			}
-			//vma_interval_tree_insert(next, root);
-		}
-		add_dnode =	&vma->dnode.defer_node[DEFERU_OP_ADD];
-		del_dnode = &vma->dnode.defer_node[DEFERU_OP_DEL];
-		if (atomic_cmpxchg(&del_dnode->reference, 1, 0) != 1) {
-			if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
-				if (!(ACCESS_ONCE(vma->dnode.used) & 1 << DEFERU_OP_ADD)) {
-					add_dnode->op_num = DEFERU_OP_ADD;
-					add_dnode->key = vma;
-					add_dnode->root = root;
-					deferu_add_i_mmap(add_dnode);
-				}
-				vma->dnode.used |= 1 << DEFERU_OP_ADD;
-			} else {
-				BUG();
-			}
-		}
-		////vma_interval_tree_insert(vma, root);
-		flush_dcache_mmap_unlock(mapping);
-	}
-#endif
 
 	if (remove_next) {
 		/*
@@ -1096,11 +988,10 @@ again:			remove_next = 1 + (end > next->vm_end);
 	}
 
 	if (anon_vma) {
-		anon_vma_interval_tree_post_update_vma(vma);
-		if (adjust_next)
-			anon_vma_interval_tree_post_update_vma(next);
-		anon_vma_unlock_write(anon_vma);
+		pr_debug("anon_vma_unlock_write: [%s]\n", __func__);
+		anon_vma_unlock_read(anon_vma);
 	}
+
 	if (mapping)
 		;
 		//i_mmap_unlock_write(mapping);
@@ -1177,7 +1068,7 @@ static inline int is_mergeable_anon_vma(struct anon_vma *anon_vma1,
 	 * parents. This can improve scalability caused by anon_vma lock.
 	 */
 	if ((!anon_vma1 || !anon_vma2) && (!vma ||
-		list_is_singular(&vma->anon_vma_chain)))
+		lockfree_list_is_singular(&vma->anon_vma_chain)))
 		return 1;
 	return anon_vma1 == anon_vma2;
 }
@@ -1379,7 +1270,7 @@ static struct anon_vma *reusable_anon_vma(struct vm_area_struct *old, struct vm_
 	if (anon_vma_compatible(a, b)) {
 		struct anon_vma *anon_vma = ACCESS_ONCE(old->anon_vma);
 
-		if (anon_vma && list_is_singular(&old->anon_vma_chain))
+		if (anon_vma && lockfree_list_is_singular(&old->anon_vma_chain))
 			return anon_vma;
 	}
 	return NULL;
@@ -1822,7 +1713,8 @@ munmap_back:
 	vma->vm_flags = vm_flags;
 	vma->vm_page_prot = vm_get_page_prot(vm_flags);
 	vma->vm_pgoff = pgoff;
-	INIT_LIST_HEAD(&vma->anon_vma_chain);
+	init_lockfree_list_head(&vma->anon_vma_chain, &vma->anon_vma_chain_head_node,
+			&vma->anon_vma_chain_tail_node);
 	memset(&vma->dnode, 0, sizeof(vma->dnode));
 
 	if (file) {
@@ -2425,9 +2317,7 @@ int expand_upwards(struct vm_area_struct *vma, unsigned long address)
 				 * against concurrent vma expansions.
 				 */
 				spin_lock(&vma->vm_mm->page_table_lock);
-				anon_vma_interval_tree_pre_update_vma(vma);
 				vma->vm_end = address;
-				anon_vma_interval_tree_post_update_vma(vma);
 				if (vma->vm_next)
 					vma_gap_update(vma->vm_next);
 				else
@@ -2496,10 +2386,8 @@ int expand_downwards(struct vm_area_struct *vma,
 				 * against concurrent vma expansions.
 				 */
 				spin_lock(&vma->vm_mm->page_table_lock);
-				anon_vma_interval_tree_pre_update_vma(vma);
 				vma->vm_start = address;
 				vma->vm_pgoff -= grow;
-				anon_vma_interval_tree_post_update_vma(vma);
 				vma_gap_update(vma);
 				spin_unlock(&vma->vm_mm->page_table_lock);
 
@@ -2689,7 +2577,8 @@ static int __split_vma(struct mm_struct *mm, struct vm_area_struct *vma,
 	/* most fields are the same, copy all, and then fixup */
 	*new = *vma;
 
-	INIT_LIST_HEAD(&new->anon_vma_chain);
+	init_lockfree_list_head(&new->anon_vma_chain, &new->anon_vma_chain_head_node,
+			&new->anon_vma_chain_tail_node);
 	memset(&new->dnode, 0, sizeof(new->dnode));
 	if (new_below)
 		new->vm_end = addr;
@@ -2939,7 +2828,8 @@ static unsigned long do_brk(unsigned long addr, unsigned long len)
 	}
 
 
-	INIT_LIST_HEAD(&vma->anon_vma_chain);
+	init_lockfree_list_head(&vma->anon_vma_chain, &vma->anon_vma_chain_head_node,
+			&vma->anon_vma_chain_tail_node);
 	memset(&vma->dnode, 0, sizeof(vma->dnode));
 	vma->vm_mm = mm;
 	vma->vm_start = addr;
@@ -3119,7 +3009,8 @@ struct vm_area_struct *copy_vma(struct vm_area_struct **vmap,
 			new_vma->vm_pgoff = pgoff;
 			if (vma_dup_policy(vma, new_vma))
 				goto out_free_vma;
-			INIT_LIST_HEAD(&new_vma->anon_vma_chain);
+			init_lockfree_list_head(&new_vma->anon_vma_chain, &new_vma->anon_vma_chain_head_node,
+					&new_vma->anon_vma_chain_tail_node);
 			memset(&new_vma->dnode, 0, sizeof(new_vma->dnode));
 
 
@@ -3232,7 +3123,8 @@ static struct vm_area_struct *__install_special_mapping(
 	if (unlikely(vma == NULL))
 		return ERR_PTR(-ENOMEM);
 
-	INIT_LIST_HEAD(&vma->anon_vma_chain);
+	init_lockfree_list_head(&vma->anon_vma_chain, &vma->anon_vma_chain_head_node,
+			&vma->anon_vma_chain_tail_node);
 	//memset(&vma->dnode, 0, sizeof(vma->dnode));
 	vma->vm_mm = mm;
 	vma->vm_start = addr;
@@ -3293,12 +3185,13 @@ static DEFINE_MUTEX(mm_all_locks_mutex);
 
 static void vm_lock_anon_vma(struct mm_struct *mm, struct anon_vma *anon_vma)
 {
-	if (!test_bit(0, (unsigned long *) &anon_vma->root->rb_root.rb_node)) {
+	if (!test_bit(0, (unsigned long *) &anon_vma->root->head_node.next)) {
 		/*
 		 * The LSB of head.next can't change from under us
 		 * because we hold the mm_all_locks_mutex.
-		 */
-		down_write_nest_lock(&anon_vma->root->rwsem, &mm->mmap_sem);
+		 */		
+		 write_lock(&anon_vma->root->rwsem);
+
 		/*
 		 * We can safely modify head.next after taking the
 		 * anon_vma->root->rwsem. If some other vma in this mm shares
@@ -3309,7 +3202,7 @@ static void vm_lock_anon_vma(struct mm_struct *mm, struct anon_vma *anon_vma)
 		 * anon_vma->root->rwsem.
 		 */
 		if (__test_and_set_bit(0, (unsigned long *)
-				       &anon_vma->root->rb_root.rb_node))
+				       &anon_vma->root->head_node.next))
 			BUG();
 	}
 }
@@ -3383,9 +3276,18 @@ int mm_take_all_locks(struct mm_struct *mm)
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {
 		if (signal_pending(current))
 			goto out_unlock;
-		if (vma->anon_vma)
-			list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
+		if (vma->anon_vma) {
+			struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)vma->anon_vma_chain_head_node.next);
+			struct lockfree_list_node *onode = vma->anon_vma_chain_head_node.next;
+
+			lockfree_list_for_each_entry(avc, node, same_vma, onode) {
+				if (&avc->same_vma == &vma->anon_vma_chain_tail_node)
+					break;
+				if (is_marked_ref((long)onode))
+					continue;
 				vm_lock_anon_vma(mm, avc->anon_vma);
+			}
+		}
 	}
 
 	return 0;
@@ -3397,7 +3299,7 @@ out_unlock:
 
 static void vm_unlock_anon_vma(struct anon_vma *anon_vma)
 {
-	if (test_bit(0, (unsigned long *) &anon_vma->root->rb_root.rb_node)) {
+	if (test_bit(0, (unsigned long *) &anon_vma->root->head_node.next)) {
 		/*
 		 * The LSB of head.next can't change to 0 from under
 		 * us because we hold the mm_all_locks_mutex.
@@ -3411,7 +3313,7 @@ static void vm_unlock_anon_vma(struct anon_vma *anon_vma)
 		 * anon_vma->root->rwsem.
 		 */
 		if (!__test_and_clear_bit(0, (unsigned long *)
-					  &anon_vma->root->rb_root.rb_node))
+					  &anon_vma->root->head_node.next))
 			BUG();
 		anon_vma_unlock_write(anon_vma);
 	}
@@ -3445,9 +3347,17 @@ void mm_drop_all_locks(struct mm_struct *mm)
 	BUG_ON(!mutex_is_locked(&mm_all_locks_mutex));
 
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {
-		if (vma->anon_vma)
-			list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
+		if (vma->anon_vma) {
+			struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)vma->anon_vma_chain_head_node.next);
+			struct lockfree_list_node *onode = vma->anon_vma_chain_head_node.next;
+			lockfree_list_for_each_entry(avc, node, same_vma, onode) {
+				if (&avc->same_vma == &vma->anon_vma_chain_tail_node)
+					break;
+				if (is_marked_ref((long)onode))
+					continue;
 				vm_unlock_anon_vma(avc->anon_vma);
+			}
+		}
 		if (vma->vm_file && vma->vm_file->f_mapping)
 			vm_unlock_mapping(vma->vm_file->f_mapping);
 	}
