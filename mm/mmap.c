@@ -3189,8 +3189,8 @@ static void vm_lock_anon_vma(struct mm_struct *mm, struct anon_vma *anon_vma)
 		/*
 		 * The LSB of head.next can't change from under us
 		 * because we hold the mm_all_locks_mutex.
-		 */		
-		 write_lock(&anon_vma->root->rwsem);
+		 */
+		down_write_nest_lock(&anon_vma->root->rwsem, &mm->mmap_sem);
 
 		/*
 		 * We can safely modify head.next after taking the
