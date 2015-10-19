@@ -57,6 +57,7 @@ struct anon_vma {
 	 * mm_take_all_locks() (mm_all_locks_mutex).
 	 */
 	struct rb_root rb_root;	/* Interval tree of private "related" vmas */
+	struct llist_node llnode; /* delayed free */
 };
 
 /*
@@ -77,6 +78,7 @@ struct anon_vma_chain {
 	struct anon_vma *anon_vma;
 	struct llist_node llnode; /* delayed free */
 	struct lockfree_list_node same_vma; /* locked by mmap_sem & page_table_lock */
+	struct deferu_anon_vma_node dnode;
 	struct rb_node rb;			/* locked by anon_vma->rwsem */
 	unsigned long rb_subtree_last;
 #ifdef CONFIG_DEBUG_VM_RB

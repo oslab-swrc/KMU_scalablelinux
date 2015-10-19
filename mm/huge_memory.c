@@ -1863,6 +1863,7 @@ static void __split_huge_page(struct page *page,
 	BUG_ON(PageTail(page));
 
 	mapcount = 0;
+
 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff, pgoff) {
 		struct vm_area_struct *vma = avc->vma;
 		unsigned long addr = vma_address(page, vma);
@@ -1926,7 +1927,9 @@ int split_huge_page_to_list(struct page *page, struct list_head *list)
 	anon_vma = page_get_anon_vma(page);
 	if (!anon_vma)
 		goto out;
-	anon_vma_lock_write(anon_vma);
+//	anon_vma_lock_write(anon_vma);
+	deferu_add_anon_vma_lock();
+	synchronize_deferu_anon_vma();
 
 	ret = 0;
 	if (!PageCompound(page))
@@ -1938,7 +1941,8 @@ int split_huge_page_to_list(struct page *page, struct list_head *list)
 
 	BUG_ON(PageCompound(page));
 out_unlock:
-	anon_vma_unlock_write(anon_vma);
+	deferu_add_anon_vma_unlock();
+	//anon_vma_unlock_write(anon_vma);
 	put_anon_vma(anon_vma);
 out:
 	return ret;

@@ -43,6 +43,11 @@ struct deferu_i_mmap_node {
 	struct deferu_node defer_node[2]; /* 0 : add op, 1 : del op */
 };
 
+struct deferu_anon_vma_node {
+	int used;
+	struct deferu_node defer_node[2]; /* 0 : add op, 1 : del op */
+};
+
 bool deferu_add_i_mmap(struct deferu_node *dnode);
 void synchronize_deferu_i_mmap(void);
 
@@ -51,5 +56,14 @@ void deferu_add_i_mmap_unlock(void);
 
 void i_mmap_deferu_add(struct vm_area_struct *vma, struct rb_root *root);
 void i_mmap_deferu_del(struct vm_area_struct *vma, struct rb_root *root);
+
+bool deferu_add_anon_vma(struct deferu_node *dnode);
+void synchronize_deferu_anon_vma(void);
+
+void deferu_add_anon_vma_lock(void);
+void deferu_add_anon_vma_unlock(void);
+
+//void anon_vma_deferu_add(struct anon_vma_chain *avc, struct rb_root *root);
+//void anon_vma_deferu_del(struct anon_vma_chain *avc, struct rb_root *root);
 
 #endif /* __LINUX_DEFERABLE_UPDATE */

@@ -560,7 +560,6 @@ void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
 		}
 		vma = next;
 	}
-	free_anon_vma_chain();
 }
 
 int __pte_alloc(struct mm_struct *mm, struct vm_area_struct *vma,

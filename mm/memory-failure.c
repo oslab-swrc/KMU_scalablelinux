@@ -431,6 +431,8 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 	if (av == NULL)	/* Not actually mapped anymore */
 		return;
 
+	deferu_add_anon_vma_lock();
+	synchronize_deferu_anon_vma();
 	pgoff = page_to_pgoff(page);
 	read_lock(&tasklist_lock);
 	for_each_process (tsk) {
@@ -449,6 +451,7 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 		}
 	}
 	read_unlock(&tasklist_lock);
+	deferu_add_anon_vma_unlock();
 	page_unlock_anon_vma_read(av);
 }
 
