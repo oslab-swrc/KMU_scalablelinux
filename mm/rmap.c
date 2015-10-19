@@ -137,19 +137,9 @@ void synchronize_deferu_anon_vma(void)
 		} else {
 			struct anon_vma *anon_vma = avc->anon_vma;
 			if (dnode->op_num == DEFERU_OP_ADD) {
-				if (RB_EMPTY_ROOT(&anon_vma->rb_root)) {
-					if (atomic_dec_and_test(&anon_vma->refcount)) {
-						llist_add(&anon_vma->llnode, &anon_vma_free_list);
-					}
-				}
 				ACCESS_ONCE(avc->dnode.used) &= ~(1 << DEFERU_OP_ADD);
 				//pr_info("deferu: add\n");
 			} else if (dnode->op_num == DEFERU_OP_DEL) {
-				if (RB_EMPTY_ROOT(&anon_vma->rb_root)) {
-					if (atomic_dec_and_test(&anon_vma->refcount)) {
-						llist_add(&anon_vma->llnode, &anon_vma_free_list);
-					}
-				}
 				//pr_info("deferu: del\n");
 				ACCESS_ONCE(avc->dnode.used) &= ~(1 << DEFERU_OP_DEL);
 			}
@@ -520,6 +510,13 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 				deferu_add_anon_vma(del_dnode);
 			} else {
 				BUG();
+			}
+		} else {
+			deferu_add_anon_vma_lock();
+			synchronize_deferu_anon_vma();
+			deferu_add_anon_vma_unlock();
+			if (RB_EMPTY_ROOT(&anon_vma->rb_root)) {
+				put_anon_vma(anon_vma);
 			}
 		}
 
