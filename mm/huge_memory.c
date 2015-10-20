@@ -1927,7 +1927,7 @@ int split_huge_page_to_list(struct page *page, struct list_head *list)
 	anon_vma = page_get_anon_vma(page);
 	if (!anon_vma)
 		goto out;
-	anon_vma_lock_write(anon_vma);
+//	anon_vma_lock_write(anon_vma);
 	deferu_add_anon_vma_lock();
 	synchronize_deferu_anon_vma();
 
@@ -1942,7 +1942,7 @@ int split_huge_page_to_list(struct page *page, struct list_head *list)
 	BUG_ON(PageCompound(page));
 out_unlock:
 	deferu_add_anon_vma_unlock();
-	anon_vma_unlock_write(anon_vma);
+//	anon_vma_unlock_write(anon_vma);
 	put_anon_vma(anon_vma);
 out:
 	return ret;

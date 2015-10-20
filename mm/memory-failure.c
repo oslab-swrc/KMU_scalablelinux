@@ -427,9 +427,9 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 	struct anon_vma *av;
 	pgoff_t pgoff;
 
-	av = page_lock_anon_vma_read(page);
-	if (av == NULL)	/* Not actually mapped anymore */
-		return;
+//	av = page_lock_anon_vma_read(page);
+//	if (av == NULL)	/* Not actually mapped anymore */
+//		return;
 
 	deferu_add_anon_vma_lock();
 	synchronize_deferu_anon_vma();
@@ -452,7 +452,7 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 	}
 	read_unlock(&tasklist_lock);
 	deferu_add_anon_vma_unlock();
-	page_unlock_anon_vma_read(av);
+//	page_unlock_anon_vma_read(av);
 }
 
 /*
@@ -464,9 +464,9 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	struct vm_area_struct *vma;
 	struct task_struct *tsk;
 	struct address_space *mapping = page->mapping;
+	//i_mmap_lock_read(mapping);
 	deferu_add_i_mmap_lock();
 	synchronize_deferu_i_mmap();
-//	i_mmap_lock_read(mapping);
 	read_lock(&tasklist_lock);
 	for_each_process(tsk) {
 		pgoff_t pgoff = page_to_pgoff(page);
@@ -489,7 +489,7 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	}
 	read_unlock(&tasklist_lock);
 	deferu_add_i_mmap_unlock();
-//	i_mmap_unlock_read(mapping);
+	//i_mmap_unlock_read(mapping);
 }
 
 /*

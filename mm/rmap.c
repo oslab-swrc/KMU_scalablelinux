@@ -131,14 +131,7 @@ static inline void anon_vma_free(struct anon_vma *anon_vma)
 
 void anon_vma_deferu_del(struct anon_vma_chain *avc, struct rb_root *root)
 {
-	struct anon_vma *anon_vma = avc->anon_vma;
-
 	anon_vma_interval_tree_remove(avc, root);
-
-	if (RB_EMPTY_ROOT(&anon_vma->rb_root)) {
-		if (atomic_dec_and_test(&anon_vma->refcount))
-			anon_vma_free(anon_vma);
-	}
 }
 
 void synchronize_deferu_anon_vma(void)
@@ -148,8 +141,8 @@ void synchronize_deferu_anon_vma(void)
 	struct anon_vma_chain *avc;
 
 	//pr_info("deferu: synchronize \n");
-	if (llist_empty(&anon_vma_deferu_list))
-		return;
+//	if (llist_empty(&anon_vma_deferu_list))
+//		return;
 
 	entry = llist_del_all(&anon_vma_deferu_list);
 	entry = llist_reverse_order(entry);
@@ -157,24 +150,20 @@ void synchronize_deferu_anon_vma(void)
 		avc = dnode->key;
 		if (atomic_cmpxchg(&dnode->reference, 1, 0) == 1) {
 			if (dnode->op_num == DEFERU_OP_ADD) {
-				anon_vma_deferu_add(dnode->key, dnode->root);
+				if (dnode->root)
+					anon_vma_deferu_add(dnode->key, dnode->root);
 				avc->dnode.used &= ~(1 << DEFERU_OP_ADD);
 				//pr_info("deferu: add\n");
 			} else if (dnode->op_num == DEFERU_OP_DEL) {
-				anon_vma_deferu_del(dnode->key, dnode->root);
+				if (dnode->root)
+					anon_vma_deferu_del(dnode->key, dnode->root);
 				avc->dnode.used &= ~(1 << DEFERU_OP_DEL);
 				//pr_info("deferu: del\n");
 			}
 		} else {
-			struct anon_vma *anon_vma = avc->anon_vma;
 			if (dnode->op_num == DEFERU_OP_ADD) {
-				if (RB_EMPTY_ROOT(&anon_vma->rb_root)) {
-					if (atomic_dec_and_test(&anon_vma->refcount))
-						anon_vma_free(anon_vma);
-				}
 				avc->dnode.used &= ~(1 << DEFERU_OP_ADD);
 			} else if (dnode->op_num == DEFERU_OP_DEL) {
-				pr_info("deferu: del\n");
 				avc->dnode.used &= ~(1 << DEFERU_OP_DEL);
 			}
 		}
@@ -201,7 +190,12 @@ static inline struct anon_vma *anon_vma_alloc(void)
 
 static inline struct anon_vma_chain *anon_vma_chain_alloc(gfp_t gfp)
 {
-	return kmem_cache_zalloc(anon_vma_chain_cachep, gfp);
+	struct anon_vma_chain *avc = kmem_cache_alloc(anon_vma_chain_cachep, gfp);
+
+	if (avc)
+		memset(&avc->dnode, 0, sizeof(avc->dnode));
+
+	return avc;
 }
 
 static void anon_vma_chain_free(struct anon_vma_chain *anon_vma_chain)
@@ -217,14 +211,18 @@ void anon_vma_free_work_func(struct work_struct *wk)
 	struct llist_node *av_entry;
 	struct anon_vma *av, *av_next;
 
-	pr_info("anon_vma_free_work_func \n");
 	mutex_lock(&deferu_anon_vma_mutex);
+	entry = llist_del_all(&anon_vma_cleanup_list);
 	synchronize_deferu_anon_vma();
 	mutex_unlock(&deferu_anon_vma_mutex);
 
-	entry = llist_del_all(&anon_vma_cleanup_list);
+	entry = llist_reverse_order(entry);
 	llist_for_each_entry_safe(avc, next, entry, llnode) {
 		if (!avc->dnode.used && avc->same_vma.garbage) {
+			struct anon_vma *anon_vma = avc->anon_vma;
+			if (RB_EMPTY_ROOT(&anon_vma->rb_root)) {
+				put_anon_vma(anon_vma);
+			}
 			anon_vma_chain_free(avc);
 			//pr_info("deferu: cleanrup vma free \n");
 		} else {
@@ -232,15 +230,6 @@ void anon_vma_free_work_func(struct work_struct *wk)
 			//pr_info("deferu: cleanrup vma non-free\n");
 		}
 	}
-#if 0
-	av_entry = llist_del_all(&anon_vma_free_list);
-	llist_for_each_entry_safe(av, av_next, av_entry, llnode) {
-		if (!atomic_read(&av->refcount))
-			__put_anon_vma(av);
-		else
-			pr_info("deferu: put anon_vma refcount error\n");
-	}
-#endif
 	schedule_delayed_work(&anon_vma_free_work, HZ * 1);
 }
 
@@ -260,13 +249,11 @@ static void anon_vma_chain_link(struct vm_area_struct *vma,
 				&avc->dnode.defer_node[DEFERU_OP_DEL];
 		if (atomic_cmpxchg(&del_dnode->reference, 1, 0) != 1) {
 			if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
-				if (!(ACCESS_ONCE(avc->dnode.used) & 1 << DEFERU_OP_ADD)) {
-					add_dnode->op_num = DEFERU_OP_ADD;
-					add_dnode->key = avc;
-					add_dnode->root = &anon_vma->rb_root;
-					deferu_add_anon_vma(add_dnode);
-				}
 				avc->dnode.used |= 1 << DEFERU_OP_ADD;
+				add_dnode->op_num = DEFERU_OP_ADD;
+				add_dnode->key = avc;
+				add_dnode->root = &anon_vma->rb_root;
+				deferu_add_anon_vma(add_dnode);
 			} else {
 				BUG();
 			}
@@ -325,7 +312,7 @@ int anon_vma_prepare(struct vm_area_struct *vma)
 			allocated = anon_vma;
 		}
 
-		anon_vma_lock_write(anon_vma);
+		//anon_vma_lock_write(anon_vma);
 		/* page_table_lock to protect against threads */
 		spin_lock(&mm->page_table_lock);
 		if (likely(!vma->anon_vma)) {
@@ -336,7 +323,7 @@ int anon_vma_prepare(struct vm_area_struct *vma)
 			avc = NULL;
 		}
 		spin_unlock(&mm->page_table_lock);
-		anon_vma_unlock_write(anon_vma);
+	//	anon_vma_unlock_write(anon_vma);
 
 		if (unlikely(allocated))
 			put_anon_vma(allocated);
@@ -520,12 +507,14 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 
 //		root = lock_anon_vma_root(root, anon_vma);
 //		anon_vma_interval_tree_remove(avc, &anon_vma->rb_root);
-
 		lockfree_list_del(&avc->same_vma, &vma->anon_vma_chain);
 		/* Need for add avc to llist */
 		/* Add global delayed free list */
 		//anon_vma_chain_free(avc);
-		llist_add(&avc->llnode, &anon_vma_cleanup_list);
+		if (avc->dnode.used)
+			llist_add(&avc->llnode, &anon_vma_cleanup_list);
+		else
+			anon_vma_chain_free(avc);
 	}
 //	unlock_anon_vma_root(root);
 }
@@ -542,7 +531,7 @@ static void anon_vma_ctor(void *data)
 void __init anon_vma_init(void)
 {
 	anon_vma_cachep = kmem_cache_create("anon_vma", sizeof(struct anon_vma),
-			0, SLAB_DESTROY_BY_RCU|SLAB_PANIC, anon_vma_ctor);
+			0, SLAB_PANIC, anon_vma_ctor);
 	anon_vma_chain_cachep = KMEM_CACHE(anon_vma_chain, SLAB_PANIC);
 }
 
@@ -1863,8 +1852,8 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 		return ret;
 
 	pgoff = page_to_pgoff(page);
+	//i_mmap_lock_write(mapping);
 	deferu_add_i_mmap_lock();
-//	i_mmap_lock_write(mapping);
 	synchronize_deferu_i_mmap();
 	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		unsigned long address = vma_address(page, vma);
@@ -1888,7 +1877,7 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 	ret = rwc->file_nonlinear(page, mapping, rwc->arg);
 done:
 	deferu_add_i_mmap_unlock();
-//	i_mmap_unlock_write(mapping);
+	//i_mmap_unlock_write(mapping);
 	return ret;
 }
 

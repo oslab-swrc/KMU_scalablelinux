@@ -57,7 +57,6 @@ struct anon_vma {
 	 * mm_take_all_locks() (mm_all_locks_mutex).
 	 */
 	struct rb_root rb_root;	/* Interval tree of private "related" vmas */
-	struct llist_node llnode; /* delayed free */
 };
 
 /*

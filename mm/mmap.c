@@ -363,7 +363,6 @@ void i_mmap_free_work_func(struct work_struct *wk)
 	struct deferu_i_mmap_node *dnode, *next;
 	struct vm_area_struct *vnode, *vnext;
 
-	pr_info("i_mmap_free_work_func \n");
 	mutex_lock(&deferu_i_mmap_mutex);
 	synchronize_deferu_i_mmap();
 	mutex_unlock(&deferu_i_mmap_mutex);
@@ -762,13 +761,11 @@ static void __vma_link_file(struct vm_area_struct *vma)
 					&vma->dnode.defer_node[DEFERU_OP_DEL];
 			if (atomic_cmpxchg(&del_dnode->reference, 1, 0) != 1) {
 				if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
-					if (!(ACCESS_ONCE(vma->dnode.used) & 1 << DEFERU_OP_ADD)) {
-						add_dnode->op_num = DEFERU_OP_ADD;
-						add_dnode->key = vma;
-						add_dnode->root = &mapping->i_mmap;
-						deferu_add_i_mmap(add_dnode);
-					}
+					add_dnode->op_num = DEFERU_OP_ADD;
+					add_dnode->key = vma;
+					add_dnode->root = &mapping->i_mmap;
 					vma->dnode.used |= 1 << DEFERU_OP_ADD;
+					deferu_add_i_mmap(add_dnode);
 				} else {
 					BUG();
 				}
