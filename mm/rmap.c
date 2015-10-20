@@ -141,8 +141,8 @@ void synchronize_deferu_anon_vma(void)
 	struct anon_vma_chain *avc;
 
 	//pr_info("deferu: synchronize \n");
-//	if (llist_empty(&anon_vma_deferu_list))
-//		return;
+	if (llist_empty(&anon_vma_deferu_list))
+		return;
 
 	entry = llist_del_all(&anon_vma_deferu_list);
 	entry = llist_reverse_order(entry);
@@ -221,7 +221,8 @@ void anon_vma_free_work_func(struct work_struct *wk)
 		if (!avc->dnode.used && avc->same_vma.garbage) {
 			struct anon_vma *anon_vma = avc->anon_vma;
 			if (RB_EMPTY_ROOT(&anon_vma->rb_root)) {
-				put_anon_vma(anon_vma);
+				if (atomic_dec_and_test(&anon_vma->refcount))
+					llist_add(&anon_vma->llnode, &anon_vma_free_list);
 			}
 			anon_vma_chain_free(avc);
 			//pr_info("deferu: cleanrup vma free \n");
@@ -230,7 +231,7 @@ void anon_vma_free_work_func(struct work_struct *wk)
 			//pr_info("deferu: cleanrup vma non-free\n");
 		}
 	}
-	schedule_delayed_work(&anon_vma_free_work, HZ * 1);
+	schedule_delayed_work(&anon_vma_free_work, HZ / 10);
 }
 
 static void anon_vma_chain_link(struct vm_area_struct *vma,
@@ -476,6 +477,7 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 	struct anon_vma *root = NULL;
 	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)vma->anon_vma_chain_head_node.next);
 	struct lockfree_list_node *onode = vma->anon_vma_chain_head_node.next;
+	struct llist_node *entry;
 
 	/*
 	 * Unlink each anon_vma chained to the VMA.  This list is ordered
@@ -483,6 +485,7 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 	 */
 	lockfree_list_for_each_entry_safe(avc, next, node, same_vma, onode) {
 		struct anon_vma *anon_vma = avc->anon_vma;
+		struct anon_vma *av, *av_next;
 		struct deferu_node *del_dnode;
 		struct deferu_node *add_dnode;
 		if (&avc->same_vma == &vma->anon_vma_chain_tail_node)
@@ -505,16 +508,18 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 			}
 		}
 
+		entry = llist_del_all(&anon_vma_free_list);
+		llist_for_each_entry_safe(av, av_next, entry, llnode) {
+			put_anon_vma(av);
+		}
+
 //		root = lock_anon_vma_root(root, anon_vma);
 //		anon_vma_interval_tree_remove(avc, &anon_vma->rb_root);
 		lockfree_list_del(&avc->same_vma, &vma->anon_vma_chain);
 		/* Need for add avc to llist */
 		/* Add global delayed free list */
 		//anon_vma_chain_free(avc);
-		if (avc->dnode.used)
-			llist_add(&avc->llnode, &anon_vma_cleanup_list);
-		else
-			anon_vma_chain_free(avc);
+		llist_add(&avc->llnode, &anon_vma_cleanup_list);
 	}
 //	unlock_anon_vma_root(root);
 }
@@ -531,7 +536,7 @@ static void anon_vma_ctor(void *data)
 void __init anon_vma_init(void)
 {
 	anon_vma_cachep = kmem_cache_create("anon_vma", sizeof(struct anon_vma),
-			0, SLAB_PANIC, anon_vma_ctor);
+			0, SLAB_DESTROY_BY_RCU|SLAB_PANIC, anon_vma_ctor);
 	anon_vma_chain_cachep = KMEM_CACHE(anon_vma_chain, SLAB_PANIC);
 }
 

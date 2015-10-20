@@ -2477,6 +2477,7 @@ find_extend_vma(struct mm_struct *mm, unsigned long addr)
 
 EXPORT_SYMBOL_GPL(find_extend_vma);
 
+extern void free_work_anon_vma(void);
 /*
  * Ok - we have the memory areas we should free on the vma list,
  * so release them, and do the vma updates.
@@ -2497,6 +2498,7 @@ static void remove_vma_list(struct mm_struct *mm, struct vm_area_struct *vma)
 		vm_stat_account(mm, vma->vm_flags, vma->vm_file, -nrpages);
 		vma = remove_vma(vma);
 	} while (vma);
+
 	vm_unacct_memory(nr_accounted);
 	validate_mm(mm);
 }
@@ -2905,6 +2907,7 @@ void exit_mmap(struct mm_struct *mm)
 			nr_accounted += vma_pages(vma);
 		vma = remove_vma(vma);
 	}
+
 	vm_unacct_memory(nr_accounted);
 
 	WARN_ON(atomic_long_read(&mm->nr_ptes) >
