@@ -263,7 +263,6 @@ static void __remove_shared_vm_struct(struct vm_area_struct *vma,
 
 		if (atomic_cmpxchg(&add_dnode->reference, 1, 0) != 1) {
 			if (atomic_cmpxchg(&del_dnode->reference, 0, 1) == 0) {
-				//pr_info("deferu: del\n");
 				vma->dnode.used |= 1 << DEFERU_OP_DEL ;
 				del_dnode->op_num = DEFERU_OP_DEL;
 				del_dnode->key = vma;
@@ -327,19 +326,15 @@ void synchronize_deferu_i_mmap(void)
 			if (dnode->op_num == DEFERU_OP_ADD) {
 				i_mmap_deferu_add(dnode->key, dnode->root);
 				ACCESS_ONCE(vma->dnode.used) &= ~(1 << DEFERU_OP_ADD);
-				//pr_info("deferu: add\n");
 			} else if (dnode->op_num == DEFERU_OP_DEL) {
 				i_mmap_deferu_del(dnode->key, dnode->root);
 				ACCESS_ONCE(vma->dnode.used) &= ~(1 << DEFERU_OP_DEL);
-				//pr_info("deferu: del\n");
 			}
 		} else {
 			if (dnode->op_num == DEFERU_OP_ADD) {
 				ACCESS_ONCE(vma->dnode.used) &= ~(1 << DEFERU_OP_ADD);
-				//pr_info("deferu: add\n");
 			} else if (dnode->op_num == DEFERU_OP_DEL) {
 				ACCESS_ONCE(vma->dnode.used) &= ~(1 << DEFERU_OP_DEL);
-				//pr_info("deferu: del\n");
 			}
 		}
 	}
@@ -354,7 +349,6 @@ void free_vma(struct vm_area_struct *vma)
 	//pr_info("deferu : free\n");
 	kmem_cache_free(vm_area_cachep, vma);
 }
-
 
 void i_mmap_free_work_func(struct work_struct *wk)
 {
