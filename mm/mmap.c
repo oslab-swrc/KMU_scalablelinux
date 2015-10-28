@@ -261,12 +261,15 @@ static void __remove_shared_vm_struct(struct vm_area_struct *vma,
 
 		if (atomic_cmpxchg(&add_dnode->reference, 1, 0) != 1) {
 			if (atomic_cmpxchg(&del_dnode->reference, 0, 1) == 0) {
+				if (!(ACCESS_ONCE(vma->dnode.used) & 1 << DEFERU_OP_DEL)) {
 				//pr_info("deferu: del\n");
-				vma->dnode.used |= 1 << DEFERU_OP_DEL ;
-				del_dnode->op_num = DEFERU_OP_DEL;
-				del_dnode->key = vma;
-				del_dnode->root = &mapping->i_mmap;
-				deferu_add_i_mmap(del_dnode);
+					vma->dnode.used |= 1 << DEFERU_OP_DEL ;
+					del_dnode->op_num = DEFERU_OP_DEL;
+					del_dnode->key = vma;
+					del_dnode->root = &mapping->i_mmap;
+					deferu_add_i_mmap(del_dnode);
+				}
+				vma->dnode.used |= 1 << DEFERU_OP_DEL;
 			} else {
 				BUG();
 			}
@@ -318,24 +321,27 @@ void synchronize_deferu_i_mmap(void)
 		return;
 
 	entry = llist_del_all(&i_mmap_deferu_list);
-	entry = llist_reverse_order(entry);
+//	entry = llist_reverse_order(entry);
 	llist_for_each_entry(dnode, entry, ll_node) {
-		vma = dnode->key;
 		if (atomic_cmpxchg(&dnode->reference, 1, 0) == 1) {
 			if (dnode->op_num == DEFERU_OP_ADD) {
+				vma = dnode->key;
 				i_mmap_deferu_add(dnode->key, dnode->root);
 				ACCESS_ONCE(vma->dnode.used) &= ~(1 << DEFERU_OP_ADD);
 				//pr_info("deferu: add\n");
 			} else if (dnode->op_num == DEFERU_OP_DEL) {
+				vma = dnode->key;
 				i_mmap_deferu_del(dnode->key, dnode->root);
 				ACCESS_ONCE(vma->dnode.used) &= ~(1 << DEFERU_OP_DEL);
 				//pr_info("deferu: del\n");
 			}
 		} else {
 			if (dnode->op_num == DEFERU_OP_ADD) {
+				vma = dnode->key;
 				ACCESS_ONCE(vma->dnode.used) &= ~(1 << DEFERU_OP_ADD);
 				//pr_info("deferu: add\n");
 			} else if (dnode->op_num == DEFERU_OP_DEL) {
+				vma = dnode->key;
 				ACCESS_ONCE(vma->dnode.used) &= ~(1 << DEFERU_OP_DEL);
 				//pr_info("deferu: del\n");
 			}
@@ -830,10 +836,11 @@ static void vma_link(struct mm_struct *mm, struct vm_area_struct *vma,
 	}
 
 	__vma_link(mm, vma, prev, rb_link, rb_parent);
-	__vma_link_file(vma);
 
-	if (mapping)
+	if (mapping) {
+		__vma_link_file(vma);
 		//i_mmap_unlock_write(mapping);
+	}
 
 	mm->map_count++;
 	validate_mm(mm);
