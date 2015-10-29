@@ -471,22 +471,26 @@ int mapping_tagged(struct address_space *mapping, int tag);
 
 static inline void i_mmap_lock_write(struct address_space *mapping)
 {
-	down_write(&mapping->i_mmap_rwsem);
+	deferu_add_i_mmap_lock();
+	//down_write(&mapping->i_mmap_rwsem);
 }
 
 static inline void i_mmap_unlock_write(struct address_space *mapping)
 {
-	up_write(&mapping->i_mmap_rwsem);
+	deferu_add_i_mmap_unlock();
+	//up_write(&mapping->i_mmap_rwsem);
 }
 
 static inline void i_mmap_lock_read(struct address_space *mapping)
 {
-	down_read(&mapping->i_mmap_rwsem);
+	deferu_add_i_mmap_lock();
+	//down_read(&mapping->i_mmap_rwsem);
 }
 
 static inline void i_mmap_unlock_read(struct address_space *mapping)
 {
-	up_read(&mapping->i_mmap_rwsem);
+	deferu_add_i_mmap_unlock();
+	//up_read(&mapping->i_mmap_rwsem);
 }
 
 /*
@@ -494,6 +498,9 @@ static inline void i_mmap_unlock_read(struct address_space *mapping)
  */
 static inline int mapping_mapped(struct address_space *mapping)
 {
+	deferu_add_i_mmap_lock();
+	synchronize_deferu_i_mmap();
+	deferu_add_i_mmap_unlock();
 	return	!RB_EMPTY_ROOT(&mapping->i_mmap) ||
 		!list_empty(&mapping->i_mmap_nonlinear);
 }
