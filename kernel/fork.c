@@ -457,7 +457,7 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 				if (atomic_cmpxchg(&del_dnode->reference, 1, 0) != 1) {
 					if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
 						if (!(ACCESS_ONCE(tmp->dnode.used) & 1 << DEFERU_OP_ADD)) {
-							tmp->dnode.used |= 1 << DEFERU_OP_ADD;
+							ACCESS_ONCE(tmp->dnode.used) |= 1 << DEFERU_OP_ADD;
 							add_dnode->op_num = DEFERU_OP_ADD;
 							add_dnode->key = tmp;
 							add_dnode->root = &mapping->i_mmap;

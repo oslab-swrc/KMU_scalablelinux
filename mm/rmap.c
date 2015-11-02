@@ -1778,9 +1778,10 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 		return ret;
 
 	pgoff = page_to_pgoff(page);
-	deferu_add_i_mmap_lock();
-//	i_mmap_lock_write(mapping);
+	i_mmap_lock_write(mapping);
+	//deferu_add_i_mmap_lock();
 	synchronize_deferu_i_mmap();
+	//deferu_add_i_mmap_unlock();
 	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		unsigned long address = vma_address(page, vma);
 
@@ -1802,8 +1803,8 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 
 	ret = rwc->file_nonlinear(page, mapping, rwc->arg);
 done:
-	deferu_add_i_mmap_unlock();
-//	i_mmap_unlock_write(mapping);
+	//deferu_add_i_mmap_unlock();
+	i_mmap_unlock_write(mapping);
 	return ret;
 }
 
