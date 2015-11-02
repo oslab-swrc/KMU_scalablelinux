@@ -2778,8 +2778,8 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	 * this mapping should be shared between all the VMAs,
 	 * __unmap_hugepage_range() is called as the lock is already held
 	 */
-	//i_mmap_lock_write(mapping);
-	deferu_add_i_mmap_lock();
+	i_mmap_lock_write(mapping);
+	//deferu_add_i_mmap_lock();
 	synchronize_deferu_i_mmap();
 	vma_interval_tree_foreach(iter_vma, &mapping->i_mmap, pgoff, pgoff) {
 		/* Do not unmap the current VMA */
@@ -2797,8 +2797,8 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 			unmap_hugepage_range(iter_vma, address,
 					     address + huge_page_size(h), page);
 	}
-	deferu_add_i_mmap_unlock();
-	//i_mmap_unlock_write(mapping);
+	//deferu_add_i_mmap_unlock();
+	i_mmap_unlock_write(mapping);
 }
 
 /*
@@ -3357,8 +3357,8 @@ unsigned long hugetlb_change_protection(struct vm_area_struct *vma,
 
 	mmu_notifier_invalidate_range_start(mm, start, end);
 
-	//i_mmap_lock_write(vma->vm_file->f_mapping);
-	deferu_add_i_mmap_lock();
+	i_mmap_lock_write(vma->vm_file->f_mapping);
+	//deferu_add_i_mmap_lock();
 	synchronize_deferu_i_mmap();
 	for (; address < end; address += huge_page_size(h)) {
 		spinlock_t *ptl;
@@ -3388,8 +3388,8 @@ unsigned long hugetlb_change_protection(struct vm_area_struct *vma,
 	 */
 	flush_tlb_range(vma, start, end);
 	mmu_notifier_invalidate_range(mm, start, end);
-	deferu_add_i_mmap_unlock();
-	//i_mmap_unlock_write(vma->vm_file->f_mapping);
+	//deferu_add_i_mmap_unlock();
+	i_mmap_unlock_write(vma->vm_file->f_mapping);
 	mmu_notifier_invalidate_range_end(mm, start, end);
 
 	return pages << h->order;

@@ -413,13 +413,13 @@ static int hugetlb_vmtruncate(struct inode *inode, loff_t offset)
 	pgoff = offset >> PAGE_SHIFT;
 
 	i_size_write(inode, offset);
-	//i_mmap_lock_write(mapping);
-	deferu_add_i_mmap_lock();
+	i_mmap_lock_write(mapping);
+	//deferu_add_i_mmap_lock();
 	synchronize_deferu_i_mmap();
 	if (!RB_EMPTY_ROOT(&mapping->i_mmap))
 		hugetlb_vmtruncate_list(&mapping->i_mmap, pgoff);
-	deferu_add_i_mmap_unlock();
-	//i_mmap_unlock_write(mapping);
+	//deferu_add_i_mmap_unlock();
+	i_mmap_unlock_write(mapping);
 	truncate_hugepages(inode, offset);
 	return 0;
 }

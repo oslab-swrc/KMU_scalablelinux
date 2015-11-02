@@ -319,6 +319,7 @@ void synchronize_deferu_i_mmap(void)
 	if (llist_empty(&i_mmap_deferu_list))
 		return;
 
+	mutex_lock(&deferu_i_mmap_mutex);
 	entry = llist_del_all(&i_mmap_deferu_list);
 	entry = llist_reverse_order(entry);
 	llist_for_each_entry(dnode, entry, ll_node) {
@@ -346,7 +347,7 @@ void synchronize_deferu_i_mmap(void)
 			}
 		}
 	}
-
+	mutex_unlock(&deferu_i_mmap_mutex);
 }
 
 void free_vma(struct vm_area_struct *vma)
@@ -368,9 +369,9 @@ void i_mmap_free_work_func(struct work_struct *wk)
 	struct vm_area_struct *vnode, *vnext;
 
 	//pr_info("i_mmap_free_work_func \n");
-	mutex_lock(&deferu_i_mmap_mutex);
+//	mutex_lock(&deferu_i_mmap_mutex);
 	synchronize_deferu_i_mmap();
-	mutex_unlock(&deferu_i_mmap_mutex);
+//	mutex_unlock(&deferu_i_mmap_mutex);
 	entry = llist_del_all(&vma_cleanup_list);
 	llist_for_each_entry_safe(vnode, vnext, entry, llist) {
 		if (!ACCESS_ONCE(vnode->dnode.used)) {
@@ -3335,8 +3336,8 @@ static void vm_lock_mapping(struct mm_struct *mm, struct address_space *mapping)
 		 */
 		if (test_and_set_bit(AS_MM_ALL_LOCKS, &mapping->flags))
 			BUG();
-		deferu_add_i_mmap_lock();
-	//	down_write_nest_lock(&mapping->i_mmap_rwsem, &mm->mmap_sem);
+	//	deferu_add_i_mmap_lock();
+		down_write_nest_lock(&mapping->i_mmap_rwsem, &mm->mmap_sem);
 	}
 }
 

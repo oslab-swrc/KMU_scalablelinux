@@ -1327,12 +1327,12 @@ static void unmap_single_vma(struct mmu_gather *tlb,
 			 * safe to do nothing in this case.
 			 */
 			if (vma->vm_file) {
-				//i_mmap_lock_write(vma->vm_file->f_mapping);
-				deferu_add_i_mmap_lock();
+				i_mmap_lock_write(vma->vm_file->f_mapping);
 				synchronize_deferu_i_mmap();
+				//deferu_add_i_mmap_lock();
 				__unmap_hugepage_range_final(tlb, vma, start, end, NULL);
-				deferu_add_i_mmap_unlock();
-				//i_mmap_unlock_write(vma->vm_file->f_mapping);
+				//deferu_add_i_mmap_unlock();
+				i_mmap_unlock_write(vma->vm_file->f_mapping);
 			}
 		} else
 			unmap_page_range(tlb, vma, start, end, details);
@@ -2389,16 +2389,15 @@ void unmap_mapping_range(struct address_space *mapping,
 		details.last_index = ULONG_MAX;
 
 
-	//i_mmap_lock_write(mapping);
-	deferu_add_i_mmap_lock();
+	i_mmap_lock_write(mapping);
 	synchronize_deferu_i_mmap();
+	//deferu_add_i_mmap_lock();
 	if (unlikely(!RB_EMPTY_ROOT(&mapping->i_mmap)))
 		unmap_mapping_range_tree(&mapping->i_mmap, &details);
-	//i_mmap_lock_write(mapping);
 	if (unlikely(!list_empty(&mapping->i_mmap_nonlinear)))
 		unmap_mapping_range_list(&mapping->i_mmap_nonlinear, &details);
-	//i_mmap_unlock_write(mapping);
-	deferu_add_i_mmap_unlock();
+	//deferu_add_i_mmap_unlock();
+	i_mmap_unlock_write(mapping);
 }
 EXPORT_SYMBOL(unmap_mapping_range);
 
