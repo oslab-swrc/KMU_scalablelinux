@@ -510,7 +510,7 @@ static inline int mapping_mapped(struct address_space *mapping)
  */
 static inline int mapping_writably_mapped(struct address_space *mapping)
 {
-	synchronize_deferu_i_mmap();
+	//synchronize_deferu_i_mmap();
 	return atomic_read(&mapping->i_mmap_writable) > 0;
 }
 
@@ -2359,6 +2359,7 @@ static inline void file_end_write(struct file *file)
  */
 static inline int get_write_access(struct inode *inode)
 {
+	synchronize_deferu_i_mmap();
 	return atomic_inc_unless_negative(&inode->i_writecount) ? 0 : -ETXTBSY;
 }
 static inline int deny_write_access(struct file *file)
@@ -2377,6 +2378,7 @@ static inline void allow_write_access(struct file *file)
 }
 static inline bool inode_is_open_for_write(const struct inode *inode)
 {
+	synchronize_deferu_i_mmap();
 	return atomic_read(&inode->i_writecount) > 0;
 }
 

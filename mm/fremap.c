@@ -241,12 +241,12 @@ get_write_lock:
 		i_mmap_lock_write(mapping);
 		flush_dcache_mmap_lock(mapping);
 		vma->vm_flags |= VM_NONLINEAR;
-		//deferu_add_i_mmap_lock();
+		deferu_add_i_mmap_lock();
 		synchronize_deferu_i_mmap();
+		deferu_add_i_mmap_unlock();
 		vma_interval_tree_remove(vma, &mapping->i_mmap);
 		vma_nonlinear_insert(vma, &mapping->i_mmap_nonlinear);
 		flush_dcache_mmap_unlock(mapping);
-		//deferu_add_i_mmap_unlock();
 		i_mmap_unlock_write(mapping);
 	}
 
