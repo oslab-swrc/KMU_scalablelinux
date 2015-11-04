@@ -11,9 +11,9 @@
 #define DEFERU_LINKED_LIST		0
 #define DEFERU_INTERVAL_TREE	1
 
-#define DEFERU_OP_ADD 0
-#define DEFERU_OP_DEL 1
-#define DEFERU_OP_ADD_AFTER 2
+#define DEFERU_OP_ADD 1
+#define DEFERU_OP_DEL 2
+#define DEFERU_OP_ADD_AFTER 3
 
 struct deferu_operations {
 	void (*add)(void *node, void *head);

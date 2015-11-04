@@ -272,6 +272,7 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
 	INIT_LIST_HEAD(&vma->anon_vma_chain);
 	memset(&vma->dnode, 0, sizeof(vma->dnode));
+	spin_lock_init(&vma->deferu_lock);
 
 	err = insert_vm_struct(mm, vma);
 	if (err)

@@ -428,6 +428,7 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 		tmp->vm_next = tmp->vm_prev = NULL;
 		file = tmp->vm_file;
 		memset(&tmp->dnode, 0, sizeof(tmp->dnode));
+		spin_lock_init(&tmp->deferu_lock);
 
 		if (file) {
 			struct inode *inode = file_inode(file);
@@ -447,25 +448,25 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 						&mapping->i_mmap_nonlinear);
 				i_mmap_unlock_write(mapping);
 			} else {
-#if 1
 				struct deferu_node *add_dnode =
-						&tmp->dnode.defer_node[DEFERU_OP_ADD];
+						&tmp->dnode.defer_node[0];
 				struct deferu_node *del_dnode =
-						&tmp->dnode.defer_node[DEFERU_OP_DEL];
+						&tmp->dnode.defer_node[1];
 				if (atomic_cmpxchg(&del_dnode->reference, 1, 0) != 1) {
 					if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
 						if (!(ACCESS_ONCE(tmp->dnode.used) & 1 << DEFERU_OP_ADD)) {
-							ACCESS_ONCE(tmp->dnode.used) |= 1 << DEFERU_OP_ADD;
+							spin_lock(&tmp->deferu_lock);
 							add_dnode->op_num = DEFERU_OP_ADD;
 							add_dnode->key = tmp;
 							add_dnode->root = &mapping->i_mmap;
 							deferu_add_i_mmap(add_dnode);
+							ACCESS_ONCE(tmp->dnode.used) |= 1 << DEFERU_OP_ADD;
+							spin_unlock(&tmp->deferu_lock);
 						}
 					} else {
 						BUG();
 					}
 				}
-#endif
 	//			vma_interval_tree_insert_after(tmp, mpnt,
 	//						&mapping->i_mmap);
 			}

@@ -88,6 +88,7 @@ long vfs_truncate(struct path *path, loff_t length)
 	if (IS_APPEND(inode))
 		goto mnt_drop_write_and_out;
 
+	//synchronize_deferu_i_mmap();
 	error = get_write_access(inode);
 	if (error)
 		goto mnt_drop_write_and_out;

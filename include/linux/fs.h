@@ -494,6 +494,7 @@ static inline void i_mmap_unlock_read(struct address_space *mapping)
  */
 static inline int mapping_mapped(struct address_space *mapping)
 {
+	synchronize_deferu_i_mmap();
 	return	!RB_EMPTY_ROOT(&mapping->i_mmap) ||
 		!list_empty(&mapping->i_mmap_nonlinear);
 }
@@ -509,6 +510,7 @@ static inline int mapping_mapped(struct address_space *mapping)
  */
 static inline int mapping_writably_mapped(struct address_space *mapping)
 {
+	synchronize_deferu_i_mmap();
 	return atomic_read(&mapping->i_mmap_writable) > 0;
 }
 
