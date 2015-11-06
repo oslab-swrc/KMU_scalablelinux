@@ -254,10 +254,8 @@ static void __remove_shared_vm_struct(struct vm_area_struct *vma,
 
 		if (atomic_cmpxchg(&add_dnode->reference, 1, 0) != 1) {
 			if (atomic_cmpxchg(&del_dnode->reference, 0, 1) == 0) {
-				if (!(ACCESS_ONCE(vma->dnode.used) & 1 << DEFERU_OP_DEL)) {
+				if (!test_and_set_bit(DEFERU_OP_DEL, &vma->dnode.used)) {
 					spin_lock(&vma->deferu_lock);
-					ACCESS_ONCE(vma->dnode.used) |= 1 << DEFERU_OP_DEL ;
-					//pr_info("deferu: del\n");
 					del_dnode->op_num = DEFERU_OP_DEL;
 					del_dnode->key = vma;
 					del_dnode->root = &mapping->i_mmap;
@@ -330,23 +328,21 @@ void synchronize_deferu_i_mmap(int needlock)
 			if (dnode->op_num == DEFERU_OP_ADD) {
 				spin_lock(&vma->deferu_lock);
 				i_mmap_deferu_add(vma, ACCESS_ONCE(dnode->root));
-				ACCESS_ONCE(vma->dnode.used) &= ~(1 << DEFERU_OP_ADD);
+				clear_bit(DEFERU_OP_ADD, &vma->dnode.used);
 				spin_unlock(&vma->deferu_lock);
-				//pr_info("deferu: add\n");
 			} else if (dnode->op_num == DEFERU_OP_DEL) {
 				spin_lock(&vma->deferu_lock);
 				i_mmap_deferu_del(vma, ACCESS_ONCE(dnode->root));
-				ACCESS_ONCE(vma->dnode.used) &= ~(1 << DEFERU_OP_DEL);
+				clear_bit(DEFERU_OP_DEL, &vma->dnode.used);
 				spin_unlock(&vma->deferu_lock);
-				//pr_info("deferu: del\n");
 			} else {
 				BUG();
 			}
 		} else {
 			if (dnode->op_num == DEFERU_OP_ADD) {
-				ACCESS_ONCE(vma->dnode.used) &= ~(1 << DEFERU_OP_ADD);
+				clear_bit(DEFERU_OP_ADD, &vma->dnode.used);
 			} else if (dnode->op_num == DEFERU_OP_DEL) {
-				ACCESS_ONCE(vma->dnode.used) &= ~(1 << DEFERU_OP_DEL);
+				clear_bit(DEFERU_OP_DEL, &vma->dnode.used);
 			} else {
 				BUG();
 			}
@@ -793,9 +789,8 @@ static void __vma_link_file(struct vm_area_struct *vma)
 					&vma->dnode.defer_node[1];
 			if (atomic_cmpxchg(&del_dnode->reference, 1, 0) != 1) {
 				if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
-					if (!(ACCESS_ONCE(vma->dnode.used) & 1 << DEFERU_OP_ADD)) {
+					if (!test_and_set_bit(DEFERU_OP_ADD, &vma->dnode.used)) {
 						spin_lock(&vma->deferu_lock);
-						ACCESS_ONCE(vma->dnode.used) |= 1 << DEFERU_OP_ADD;
 						add_dnode->op_num = DEFERU_OP_ADD;
 						add_dnode->key = vma;
 						add_dnode->root = &mapping->i_mmap;

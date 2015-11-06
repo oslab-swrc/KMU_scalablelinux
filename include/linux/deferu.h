@@ -39,7 +39,7 @@ struct deferu_node {
 };
 
 struct deferu_i_mmap_node {
-	int used;
+	unsigned long used;
 	struct deferu_node defer_node[2]; /* 0 : add op, 1 : del op */
 };
 
