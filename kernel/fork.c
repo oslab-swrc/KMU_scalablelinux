@@ -456,11 +456,11 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 					if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
 						if (!(ACCESS_ONCE(tmp->dnode.used) & 1 << DEFERU_OP_ADD)) {
 							spin_lock(&tmp->deferu_lock);
+							ACCESS_ONCE(tmp->dnode.used) |= 1 << DEFERU_OP_ADD;
 							add_dnode->op_num = DEFERU_OP_ADD;
 							add_dnode->key = tmp;
 							add_dnode->root = &mapping->i_mmap;
 							deferu_add_i_mmap(add_dnode);
-							ACCESS_ONCE(tmp->dnode.used) |= 1 << DEFERU_OP_ADD;
 							spin_unlock(&tmp->deferu_lock);
 						}
 					} else {

@@ -44,7 +44,7 @@ struct deferu_i_mmap_node {
 };
 
 bool deferu_add_i_mmap(struct deferu_node *dnode);
-void synchronize_deferu_i_mmap(void);
+void synchronize_deferu_i_mmap(int needlock);
 
 void deferu_add_i_mmap_lock(void);
 void deferu_add_i_mmap_unlock(void);
