@@ -289,6 +289,7 @@ struct vm_area_struct {
 
 	struct deferu_i_mmap_node dnode;
 	struct llist_node llist;
+	spinlock_t deferu_lock;
 
 	struct llist_node llnode; /* delayed free */
 

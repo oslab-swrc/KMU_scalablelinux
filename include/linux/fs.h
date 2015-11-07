@@ -494,6 +494,7 @@ static inline void i_mmap_unlock_read(struct address_space *mapping)
  */
 static inline int mapping_mapped(struct address_space *mapping)
 {
+	synchronize_deferu_i_mmap(1);
 	return	!RB_EMPTY_ROOT(&mapping->i_mmap) ||
 		!list_empty(&mapping->i_mmap_nonlinear);
 }
@@ -2357,6 +2358,7 @@ static inline void file_end_write(struct file *file)
  */
 static inline int get_write_access(struct inode *inode)
 {
+	synchronize_deferu_i_mmap(1);
 	return atomic_inc_unless_negative(&inode->i_writecount) ? 0 : -ETXTBSY;
 }
 static inline int deny_write_access(struct file *file)

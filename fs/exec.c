@@ -275,6 +275,7 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 		&vma->anon_vma_chain_tail_node);
 	
 	memset(&vma->dnode, 0, sizeof(vma->dnode));
+	spin_lock_init(&vma->deferu_lock);
 
 	err = insert_vm_struct(mm, vma);
 	if (err)

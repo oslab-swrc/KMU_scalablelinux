@@ -467,8 +467,7 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	struct task_struct *tsk;
 	struct address_space *mapping = page->mapping;
 	i_mmap_lock_write(mapping);
-	//deferu_add_i_mmap_lock();
-	synchronize_deferu_i_mmap();
+	synchronize_deferu_i_mmap(1);
 	read_lock(&tasklist_lock);
 	for_each_process(tsk) {
 		pgoff_t pgoff = page_to_pgoff(page);
@@ -490,7 +489,6 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 		}
 	}
 	read_unlock(&tasklist_lock);
-	//deferu_add_i_mmap_unlock();
 	i_mmap_unlock_write(mapping);
 }
 

@@ -11,9 +11,9 @@
 #define DEFERU_LINKED_LIST		0
 #define DEFERU_INTERVAL_TREE	1
 
-#define DEFERU_OP_ADD 0
-#define DEFERU_OP_DEL 1
-#define DEFERU_OP_ADD_AFTER 2
+#define DEFERU_OP_ADD 1
+#define DEFERU_OP_DEL 2
+#define DEFERU_OP_ADD_AFTER 3
 
 struct deferu_operations {
 	void (*add)(void *node, void *head);
@@ -39,12 +39,12 @@ struct deferu_node {
 };
 
 struct deferu_i_mmap_node {
-	int used;
+	unsigned long used;
 	struct deferu_node defer_node[2]; /* 0 : add op, 1 : del op */
 };
 
 bool deferu_add_i_mmap(struct deferu_node *dnode);
-void synchronize_deferu_i_mmap(void);
+void synchronize_deferu_i_mmap(int needlock);
 
 void deferu_add_i_mmap_lock(void);
 void deferu_add_i_mmap_unlock(void);
