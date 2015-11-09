@@ -462,7 +462,7 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	struct task_struct *tsk;
 	struct address_space *mapping = page->mapping;
 	i_mmap_lock_write(mapping);
-	synchronize_deferu_i_mmap(1);
+	synchronize_deferu_i_mmap(mapping);
 	read_lock(&tasklist_lock);
 	for_each_process(tsk) {
 		pgoff_t pgoff = page_to_pgoff(page);

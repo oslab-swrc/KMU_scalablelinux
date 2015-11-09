@@ -41,6 +41,7 @@
 #include <linux/notifier.h>
 #include <linux/memory.h>
 #include <linux/printk.h>
+#include <linux/kthread.h>
 
 #include <asm/uaccess.h>
 #include <asm/cacheflush.h>
@@ -58,10 +59,8 @@
 #endif
 
 LLIST_HEAD(vma_cleanup_list);
-LLIST_HEAD(i_mmap_deferu_list);
-void i_mmap_free_work_func(struct work_struct *wk);
-static DECLARE_DELAYED_WORK(i_mmap_free_work, i_mmap_free_work_func);
-static DEFINE_MUTEX(deferu_i_mmap_mutex);
+static struct workqueue_struct *i_mmap_wq;
+static struct task_struct *free_vma_task;
 
 static void unmap_region(struct mm_struct *mm,
 		struct vm_area_struct *vma, struct vm_area_struct *prev,
@@ -253,17 +252,14 @@ static void __remove_shared_vm_struct(struct vm_area_struct *vma,
 		struct deferu_node *add_dnode = &vma->dnode.defer_node[0];
 
 		if (atomic_cmpxchg(&add_dnode->reference, 1, 0) != 1) {
-			if (atomic_cmpxchg(&del_dnode->reference, 0, 1) == 0) {
-				if (!test_and_set_bit(DEFERU_OP_DEL, &vma->dnode.used)) {
-					spin_lock(&vma->deferu_lock);
-					del_dnode->op_num = DEFERU_OP_DEL;
-					del_dnode->key = vma;
-					del_dnode->root = &mapping->i_mmap;
-					deferu_add_i_mmap(del_dnode);
-					spin_unlock(&vma->deferu_lock);
-				}
-			} else {
-				BUG();
+			atomic_set(&del_dnode->reference, 1);
+			if (!test_and_set_bit(DEFERU_OP_DEL, &vma->dnode.used)) {
+				spin_lock(&vma->deferu_lock);
+				del_dnode->op_num = DEFERU_OP_DEL;
+				del_dnode->key = vma;
+				del_dnode->root = &mapping->i_mmap;
+				deferu_add_i_mmap(mapping, del_dnode);
+				spin_unlock(&vma->deferu_lock);
 			}
 		}
 		//vma_interval_tree_remove(vma, &mapping->i_mmap);
@@ -292,64 +288,42 @@ void unlink_file_vma(struct vm_area_struct *vma)
 	}
 }
 
-void deferu_add_i_mmap_lock(void)
+void i_mmap_free_work_func(struct work_struct *work);
+bool deferu_add_i_mmap(struct address_space *mapping, struct deferu_node *dnode)
 {
-	mutex_lock(&deferu_i_mmap_mutex);
+	if (llist_add(&dnode->ll_node, &mapping->deferuh.ll_head)) {
+		queue_delayed_work(i_mmap_wq, &mapping->deferuh.sync,
+				round_jiffies_relative(HZ));
+	}
+	return true;
 }
 
-void deferu_add_i_mmap_unlock(void)
-{
-	mutex_unlock(&deferu_i_mmap_mutex);
-}
+void i_mmap_deferu(int op, struct vm_area_struct *vma, struct rb_root *root);
 
-bool deferu_add_i_mmap(struct deferu_node *dnode)
-{
-	if (llist_add(&dnode->ll_node, &i_mmap_deferu_list))
-		schedule_delayed_work(&i_mmap_free_work, HZ);
-}
-
-void synchronize_deferu_i_mmap(int needlock)
+void synchronize_deferu_i_mmap(struct address_space *mapping)
 {
 	struct llist_node *entry;
 	struct deferu_node *dnode, *next;
 	struct vm_area_struct *vma;
+	struct deferu_head *deferuh = &mapping->deferuh;
 
-	if (llist_empty(&i_mmap_deferu_list))
+	if (llist_empty(&deferuh->ll_head))
 		return;
 
 	//pr_info("deferu: synchronize \n");
-	if (needlock)
-		mutex_lock(&deferu_i_mmap_mutex);
-	entry = llist_del_all(&i_mmap_deferu_list);
+	entry = llist_del_all(&deferuh->ll_head);
 	entry = llist_reverse_order(entry);
 	llist_for_each_entry_safe(dnode, next, entry, ll_node) {
 		vma = ACCESS_ONCE(dnode->key);
 		if (atomic_cmpxchg(&dnode->reference, 1, 0) == 1) {
-			if (dnode->op_num == DEFERU_OP_ADD) {
-				spin_lock(&vma->deferu_lock);
-				i_mmap_deferu_add(vma, ACCESS_ONCE(dnode->root));
-				clear_bit(DEFERU_OP_ADD, &vma->dnode.used);
-				spin_unlock(&vma->deferu_lock);
-			} else if (dnode->op_num == DEFERU_OP_DEL) {
-				spin_lock(&vma->deferu_lock);
-				i_mmap_deferu_del(vma, ACCESS_ONCE(dnode->root));
-				clear_bit(DEFERU_OP_DEL, &vma->dnode.used);
-				spin_unlock(&vma->deferu_lock);
-			} else {
-				BUG();
-			}
-		} else {
-			if (dnode->op_num == DEFERU_OP_ADD) {
-				clear_bit(DEFERU_OP_ADD, &vma->dnode.used);
-			} else if (dnode->op_num == DEFERU_OP_DEL) {
-				clear_bit(DEFERU_OP_DEL, &vma->dnode.used);
-			} else {
-				BUG();
-			}
-		}
+			spin_lock(&vma->deferu_lock);
+			i_mmap_deferu(dnode->op_num, vma, ACCESS_ONCE(dnode->root));
+			clear_bit(dnode->op_num, &vma->dnode.used);
+			spin_unlock(&vma->deferu_lock);
+		} else
+			clear_bit(dnode->op_num, &vma->dnode.used);
+
 	}
-	if (needlock)
-		mutex_unlock(&deferu_i_mmap_mutex);
 }
 
 void free_vma(struct vm_area_struct *vma)
@@ -362,24 +336,41 @@ void free_vma(struct vm_area_struct *vma)
 	kmem_cache_free(vm_area_cachep, vma);
 }
 
-/* i_mmap_sync_and_free_work */
-void i_mmap_free_work_func(struct work_struct *wk)
+static int free_vma_thread(void *dummy)
 {
-	struct llist_node *entry;
-	struct deferu_i_mmap_node *dnode;
-	struct vm_area_struct *vnode, *vnext;
-
-	synchronize_deferu_i_mmap(1);
-	entry = llist_del_all(&vma_cleanup_list);
-	llist_for_each_entry_safe(vnode, vnext, entry, llist) {
-		if (!ACCESS_ONCE(vnode->dnode.used)) {
-			kmem_cache_free(vm_area_cachep, vnode);
-		} else {
-			llist_add(&vnode->llist, &vma_cleanup_list);
+	while (1) {
+		struct llist_node *entry;
+		struct vm_area_struct *vnode, *vnext;
+		set_current_state(TASK_INTERRUPTIBLE);
+		if (!kthread_should_stop())
+			schedule();
+		set_current_state(TASK_RUNNING);
+		entry = llist_del_all(&vma_cleanup_list);
+		llist_for_each_entry_safe(vnode, vnext, entry, llist) {
+			if (!ACCESS_ONCE(vnode->dnode.used)) {
+				kmem_cache_free(vm_area_cachep, vnode);
+			} else {
+				llist_add(&vnode->llist, &vma_cleanup_list);
+			}
 		}
 	}
+
+	return 0;
 }
 
+/* i_mmap_sync_and_free_work */
+void i_mmap_free_work_func(struct work_struct *work)
+{
+	struct address_space *mapping = container_of(work, struct address_space,
+			deferuh.sync.work);
+
+	i_mmap_lock_write(mapping);
+	synchronize_deferu_i_mmap(mapping);
+	i_mmap_unlock_write(mapping);
+
+	if (!llist_empty(&vma_cleanup_list))
+		wake_up_process(free_vma_task);
+}
 
 /*
  * Close a vm structure and free it, returning the next.
@@ -738,6 +729,15 @@ void i_mmap_deferu_del(struct vm_area_struct *vma, struct rb_root *root)
 	vma_interval_tree_remove(vma, root);
 }
 
+
+void i_mmap_deferu(int op, struct vm_area_struct *vma, struct rb_root *root)
+{
+	if (op == DEFERU_OP_ADD)
+		vma_interval_tree_insert(vma, root);
+	else
+		vma_interval_tree_remove(vma, root);
+}
+
 struct deferu_operations i_mmap_deferu_operations = {
 	.add = NULL,
 	.del = NULL,
@@ -788,17 +788,14 @@ static void __vma_link_file(struct vm_area_struct *vma)
 			struct deferu_node *del_dnode =
 					&vma->dnode.defer_node[1];
 			if (atomic_cmpxchg(&del_dnode->reference, 1, 0) != 1) {
-				if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
-					if (!test_and_set_bit(DEFERU_OP_ADD, &vma->dnode.used)) {
-						spin_lock(&vma->deferu_lock);
-						add_dnode->op_num = DEFERU_OP_ADD;
-						add_dnode->key = vma;
-						add_dnode->root = &mapping->i_mmap;
-						deferu_add_i_mmap(add_dnode);
-						spin_unlock(&vma->deferu_lock);
-					}
-				} else {
-					BUG();
+				atomic_set(&add_dnode->reference, 1);
+				if (!test_and_set_bit(DEFERU_OP_ADD, &vma->dnode.used)) {
+					spin_lock(&vma->deferu_lock);
+					add_dnode->op_num = DEFERU_OP_ADD;
+					add_dnode->key = vma;
+					add_dnode->root = &mapping->i_mmap;
+					deferu_add_i_mmap(mapping, add_dnode);
+					spin_unlock(&vma->deferu_lock);
 				}
 			}
 			/* deferu_insert_i_mmap(); */
@@ -980,29 +977,6 @@ again:			remove_next = 1 + (end > next->vm_end);
 			anon_vma_interval_tree_pre_update_vma(next);
 	}
 
-#if 0
-	if (root) {
-		struct deferu_node *del_dnode = &vma->dnode.defer_node[1];
-		struct deferu_node *add_dnode = &vma->dnode.defer_node[0];
-		flush_dcache_mmap_lock(mapping);
-		if (atomic_cmpxchg(&add_dnode->reference, 1, 0) != 1) {
-			if (atomic_cmpxchg(&del_dnode->reference, 0, 1) == 0) {
-				if (!(ACCESS_ONCE(vma->dnode.used) & 1 << DEFERU_OP_DEL)) {
-					ACCESS_ONCE(vma->dnode.used) |= 1 << DEFERU_OP_DEL ;
-					spin_lock(&vma->deferu_lock);
-					del_dnode->op_num = DEFERU_OP_DEL;
-					del_dnode->key = vma;
-					del_dnode->root = root;
-					deferu_add_i_mmap(del_dnode);
-					spin_unlock(&vma->deferu_lock);
-				}
-			} else {
-				BUG();
-			}
-		}
-		//vma_interval_tree_remove(vma, root);
-	}
-#endif
 	if (start != vma->vm_start) {
 		vma->vm_start = start;
 		start_changed = true;
@@ -1016,32 +990,6 @@ again:			remove_next = 1 + (end > next->vm_end);
 		next->vm_start += adjust_next << PAGE_SHIFT;
 		next->vm_pgoff += adjust_next;
 	}
-
-#if 0
-	if (root) {
-		struct deferu_node *add_dnode;
-		struct deferu_node *del_dnode;
-		add_dnode =	&vma->dnode.defer_node[0];
-		del_dnode = &vma->dnode.defer_node[1];
-		if (atomic_cmpxchg(&del_dnode->reference, 1, 0) != 1) {
-			if (atomic_cmpxchg(&add_dnode->reference, 0, 1) == 0) {
-				if (!(ACCESS_ONCE(vma->dnode.used) & 1 << DEFERU_OP_ADD)) {
-					ACCESS_ONCE(vma->dnode.used) |= 1 << DEFERU_OP_ADD;
-					spin_lock(&vma->deferu_lock);
-					add_dnode->op_num = DEFERU_OP_ADD;
-					add_dnode->key = vma;
-					add_dnode->root = root;
-					deferu_add_i_mmap(add_dnode);
-					spin_unlock(&vma->deferu_lock);
-				}
-			} else {
-				BUG();
-			}
-		}
-		////vma_interval_tree_insert(vma, root);
-		flush_dcache_mmap_unlock(mapping);
-	}
-#endif
 
 	if (remove_next) {
 		/*
@@ -1076,8 +1024,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 		anon_vma_unlock_write(anon_vma);
 	}
 	if (mapping)
-		;
-		//i_mmap_unlock_write(mapping);
+		;//i_mmap_unlock_write(mapping);
 
 	if (root) {
 		uprobe_mmap(vma);
@@ -3308,7 +3255,6 @@ static void vm_lock_mapping(struct mm_struct *mm, struct address_space *mapping)
 		 */
 		if (test_and_set_bit(AS_MM_ALL_LOCKS, &mapping->flags))
 			BUG();
-	//	deferu_add_i_mmap_lock();
 		down_write_nest_lock(&mapping->i_mmap_rwsem, &mm->mmap_sem);
 	}
 }
@@ -3561,7 +3507,12 @@ subsys_initcall(init_reserve_notifier);
 
 static int __init i_mmap_init_wq(void)
 {
-	schedule_delayed_work(&i_mmap_free_work, HZ);
+	i_mmap_wq = create_singlethread_workqueue("i_mmap");
+	WARN(!i_mmap_wq, "failed to create i_mmap workqueue\n");
+
+	free_vma_task = kthread_create(free_vma_thread, NULL,
+			"mm_free_vma");
+	BUG_ON(IS_ERR(free_vma_task));
 	pr_info("i_mmap work queue initialize");
 	return 0;
 }

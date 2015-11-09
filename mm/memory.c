@@ -1328,10 +1328,8 @@ static void unmap_single_vma(struct mmu_gather *tlb,
 			 */
 			if (vma->vm_file) {
 				i_mmap_lock_write(vma->vm_file->f_mapping);
-				deferu_add_i_mmap_lock();
-				synchronize_deferu_i_mmap(0);
+				synchronize_deferu_i_mmap(vma->vm_file->f_mapping);
 				__unmap_hugepage_range_final(tlb, vma, start, end, NULL);
-				deferu_add_i_mmap_unlock();
 				i_mmap_unlock_write(vma->vm_file->f_mapping);
 			}
 		} else
@@ -2390,7 +2388,7 @@ void unmap_mapping_range(struct address_space *mapping,
 
 
 	i_mmap_lock_write(mapping);
-	synchronize_deferu_i_mmap(1);
+	synchronize_deferu_i_mmap(mapping);
 	if (unlikely(!RB_EMPTY_ROOT(&mapping->i_mmap)))
 		unmap_mapping_range_tree(&mapping->i_mmap, &details);
 	if (unlikely(!list_empty(&mapping->i_mmap_nonlinear)))

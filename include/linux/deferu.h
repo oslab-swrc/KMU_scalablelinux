@@ -24,9 +24,8 @@ struct deferu_operations {
 struct deferu_head {
 	int completed; /* preventing for next reader's read operation */
 	int init;
+	struct delayed_work sync;
 	struct llist_head ll_head;
-	struct mutex mutex;
-	struct deferu_operations *du_ops;
 };
 
 struct deferu_node {
@@ -43,11 +42,15 @@ struct deferu_i_mmap_node {
 	struct deferu_node defer_node[2]; /* 0 : add op, 1 : del op */
 };
 
-bool deferu_add_i_mmap(struct deferu_node *dnode);
-void synchronize_deferu_i_mmap(int needlock);
+void i_mmap_free_work_func(struct work_struct *work);
 
-void deferu_add_i_mmap_lock(void);
-void deferu_add_i_mmap_unlock(void);
+static inline void init_deferu_head(struct deferu_head *dp)
+{
+	dp->completed = 0;
+	init_llist_head(&dp->ll_head);
+	dp->init = 0;
+	INIT_DELAYED_WORK(&dp->sync, i_mmap_free_work_func);
+}
 
 void i_mmap_deferu_add(struct vm_area_struct *vma, struct rb_root *root);
 void i_mmap_deferu_del(struct vm_area_struct *vma, struct rb_root *root);

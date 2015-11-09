@@ -155,8 +155,9 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 	pte_unmap_unlock(old_pte - 1, old_ptl);
 	if (anon_vma)
 		anon_vma_unlock_write(anon_vma);
-	if (mapping)
+	if (mapping) {
 		i_mmap_unlock_write(mapping);
+	}
 }
 
 #define LATENCY_LIMIT	(64 * PAGE_SIZE)
