@@ -448,21 +448,7 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 						&mapping->i_mmap_nonlinear);
 				i_mmap_unlock_write(mapping);
 			} else {
-				struct deferu_node *add_dnode =
-						&tmp->dnode.defer_node[0];
-				struct deferu_node *del_dnode =
-						&tmp->dnode.defer_node[1];
-				if (atomic_cmpxchg(&del_dnode->reference, 1, 0) != 1) {
-					atomic_set(&add_dnode->reference, 1);
-					if (!test_and_set_bit(DEFERU_OP_ADD, (void*) &tmp->dnode.used)) {
-						//spin_lock(&tmp->deferu_lock);
-						add_dnode->op_num = DEFERU_OP_ADD;
-						add_dnode->key = tmp;
-						add_dnode->root = &mapping->i_mmap;
-						deferu_add_i_mmap(mapping, add_dnode);
-						//spin_unlock(&tmp->deferu_lock);
-					}
-				}
+				deferu_logical_insert(tmp, mapping);
 	//			vma_interval_tree_insert_after(tmp, mpnt,
 	//						&mapping->i_mmap);
 			}

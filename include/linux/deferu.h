@@ -15,24 +15,15 @@
 #define DEFERU_OP_DEL 2
 #define DEFERU_OP_ADD_AFTER 3
 
-struct deferu_operations {
-	void (*add)(void *node, void *head);
-	void (*del)(void *node, void *head);
-	void (*move)(void *node, void *head);
-};
-
 struct deferu_head {
-	int completed; /* preventing for next reader's read operation */
-	int init;
 	struct delayed_work sync;
 	struct llist_head ll_head;
 };
 
 struct deferu_node {
 	void *key;
-	atomic_t reference;
+	atomic_t mark;
 	int op_num;
-	int garbage;
 	struct rb_root *root;
 	struct llist_node ll_node;
 };
@@ -44,15 +35,11 @@ struct deferu_i_mmap_node {
 
 void i_mmap_free_work_func(struct work_struct *work);
 
+void deferu_physical_update(int op, struct vm_area_struct *vma, struct rb_root *root);
 static inline void init_deferu_head(struct deferu_head *dp)
 {
-	dp->completed = 0;
 	init_llist_head(&dp->ll_head);
-	dp->init = 0;
 	INIT_DELAYED_WORK(&dp->sync, i_mmap_free_work_func);
 }
-
-void i_mmap_deferu_add(struct vm_area_struct *vma, struct rb_root *root);
-void i_mmap_deferu_del(struct vm_area_struct *vma, struct rb_root *root);
 
 #endif /* __LINUX_DEFERABLE_UPDATE */

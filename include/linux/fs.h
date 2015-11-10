@@ -493,7 +493,11 @@ static inline void i_mmap_unlock_read(struct address_space *mapping)
 }
 
 void synchronize_deferu_i_mmap(struct address_space *mapping);
-bool deferu_add_i_mmap(struct address_space *mapping, struct deferu_node *dnode);
+bool deferu_logical_update(struct address_space *mapping, struct deferu_node *dnode);
+bool deferu_logical_insert(struct vm_area_struct *vma,
+		struct address_space *mapping);
+bool deferu_logical_remove(struct vm_area_struct *vma,
+		struct address_space *mapping);
 
 /*
  * Might pages of this file be mapped into userspace?
