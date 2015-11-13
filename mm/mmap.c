@@ -58,6 +58,7 @@
 #define arch_rebalance_pgtables(addr, len)		(addr)
 #endif
 
+#define DEFERU_UPDATE_RATE 1 /* 1 sec */
 LLIST_HEAD(vma_cleanup_list);
 static struct workqueue_struct *i_mmap_wq;
 static struct task_struct *free_vma_task;
@@ -242,7 +243,7 @@ bool deferu_logical_update(struct address_space *mapping,
 {
 	if (llist_add(&dnode->ll_node, &mapping->deferuh.ll_head)) {
 		queue_delayed_work(i_mmap_wq, &mapping->deferuh.sync,
-				round_jiffies_relative(HZ * 2));
+				round_jiffies_relative(HZ * DEFERU_UPDATE_RATE));
 	}
 	return true;
 }
@@ -313,6 +314,7 @@ void synchronize_deferu_i_mmap(struct address_space *mapping)
 		clear_bit(dnode->op_num, &vma->dnode.used);
 	}
 }
+EXPORT_SYMBOL_GPL(synchronize_deferu_i_mmap);
 
 void free_vma(struct vm_area_struct *vma)
 {
@@ -320,20 +322,16 @@ void free_vma(struct vm_area_struct *vma)
 		llist_add(&vma->llist, &vma_cleanup_list);
 		return;
 	}
-	//pr_info("deferu : free\n");
 	kmem_cache_free(vm_area_cachep, vma);
 }
 
 static int free_vma_thread(void *dummy)
 {
-	while (1) {
-		struct llist_node *entry;
-		struct vm_area_struct *vnode, *vnext;
-		set_current_state(TASK_INTERRUPTIBLE);
-		if (!kthread_should_stop())
-			schedule();
-		set_current_state(TASK_RUNNING);
+	struct llist_node *entry;
+	struct vm_area_struct *vnode, *vnext;
 
+	while (!kthread_should_stop()) {
+		schedule_timeout_interruptible(HZ * DEFERU_UPDATE_RATE);
 		entry = llist_del_all(&vma_cleanup_list);
 		llist_for_each_entry_safe(vnode, vnext, entry, llist) {
 			if (!ACCESS_ONCE(vnode->dnode.used)) {
@@ -357,8 +355,6 @@ void i_mmap_free_work_func(struct work_struct *work)
 	synchronize_deferu_i_mmap(mapping);
 	i_mmap_unlock_write(mapping);
 
-	if (!llist_empty(&vma_cleanup_list))
-		wake_up_process(free_vma_task);
 }
 
 /*
@@ -3501,6 +3497,7 @@ static int __init i_mmap_init_wq(void)
 	free_vma_task = kthread_create(free_vma_thread, NULL,
 			"mm_free_vma");
 	BUG_ON(IS_ERR(free_vma_task));
+	wake_up_process(free_vma_task);
 	pr_info("i_mmap work queue initialize");
 	return 0;
 }
