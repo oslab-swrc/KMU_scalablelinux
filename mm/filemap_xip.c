@@ -176,8 +176,7 @@ static void __xip_unmap(struct address_space * mapping, unsigned long pgoff)
 
 retry:
 	i_mmap_lock_write(mapping);
-	deferu_add_i_mmap_lock();
-	synchronize_deferu_i_mmap(0);
+	synchronize_deferu_i_mmap(mapping);
 	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		pte_t *pte, pteval;
 		spinlock_t *ptl;
@@ -200,7 +199,6 @@ retry:
 			page_cache_release(page);
 		}
 	}
-	deferu_add_i_mmap_unlock();
 	i_mmap_unlock_write(mapping);
 
 	if (locked) {

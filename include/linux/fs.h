@@ -402,6 +402,7 @@ struct address_space {
 	spinlock_t		tree_lock;	/* and lock protecting it */
 	atomic_t		i_mmap_writable;/* count VM_SHARED mappings */
 	struct rb_root		i_mmap;		/* tree of private and shared mappings */
+	struct deferu_head	deferuh;
 	struct list_head	i_mmap_nonlinear;/*list VM_NONLINEAR mappings */
 	struct rw_semaphore	i_mmap_rwsem;	/* protect tree, count, list */
 	/* Protected by tree_lock together with the radix tree */
@@ -481,20 +482,31 @@ static inline void i_mmap_unlock_write(struct address_space *mapping)
 
 static inline void i_mmap_lock_read(struct address_space *mapping)
 {
-	down_read(&mapping->i_mmap_rwsem);
+	down_write(&mapping->i_mmap_rwsem);
+//	down_read(&mapping->i_mmap_rwsem);
 }
 
 static inline void i_mmap_unlock_read(struct address_space *mapping)
 {
-	up_read(&mapping->i_mmap_rwsem);
+	up_write(&mapping->i_mmap_rwsem);
+//	up_read(&mapping->i_mmap_rwsem);
 }
+
+void synchronize_deferu_i_mmap(struct address_space *mapping);
+bool deferu_logical_update(struct address_space *mapping, struct deferu_node *dnode);
+bool deferu_logical_insert(struct vm_area_struct *vma,
+		struct address_space *mapping);
+bool deferu_logical_remove(struct vm_area_struct *vma,
+		struct address_space *mapping);
 
 /*
  * Might pages of this file be mapped into userspace?
  */
 static inline int mapping_mapped(struct address_space *mapping)
 {
-	synchronize_deferu_i_mmap(1);
+	down_write(&mapping->i_mmap_rwsem);
+	synchronize_deferu_i_mmap(mapping);
+	up_write(&mapping->i_mmap_rwsem);
 	return	!RB_EMPTY_ROOT(&mapping->i_mmap) ||
 		!list_empty(&mapping->i_mmap_nonlinear);
 }
@@ -2358,7 +2370,9 @@ static inline void file_end_write(struct file *file)
  */
 static inline int get_write_access(struct inode *inode)
 {
-	synchronize_deferu_i_mmap(1);
+	down_write(&inode->i_mapping->i_mmap_rwsem);
+	synchronize_deferu_i_mmap(inode->i_mapping);
+	up_write(&inode->i_mapping->i_mmap_rwsem);
 	return atomic_inc_unless_negative(&inode->i_writecount) ? 0 : -ETXTBSY;
 }
 static inline int deny_write_access(struct file *file)

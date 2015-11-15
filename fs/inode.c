@@ -263,6 +263,9 @@ static void i_callback(struct rcu_head *head)
 static void destroy_inode(struct inode *inode)
 {
 	BUG_ON(!list_empty(&inode->i_lru));
+	if (inode->i_mapping && !llist_empty(&inode->i_mapping->deferuh.ll_head)) {
+		flush_delayed_work(&inode->i_mapping->deferuh.sync);
+	}
 	__destroy_inode(inode);
 	if (inode->i_sb->s_op->destroy_inode)
 		inode->i_sb->s_op->destroy_inode(inode);
@@ -360,6 +363,7 @@ void address_space_init_once(struct address_space *mapping)
 	INIT_LIST_HEAD(&mapping->private_list);
 	spin_lock_init(&mapping->private_lock);
 	mapping->i_mmap = RB_ROOT;
+	init_deferu_head(&mapping->deferuh);
 	INIT_LIST_HEAD(&mapping->i_mmap_nonlinear);
 }
 EXPORT_SYMBOL(address_space_init_once);
