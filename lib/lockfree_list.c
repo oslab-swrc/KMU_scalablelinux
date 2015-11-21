@@ -26,8 +26,8 @@ search_again:
 			if (!t->next)
 				break;
 			t_next = t->next;
-//		} while (is_marked_ref((long)t_next) || (t->key > key));
-		} while (is_marked_ref((long)t_next));
+		} while (is_marked_ref((long)t_next) || (t->key > key));
+//		} while (is_marked_ref((long)t_next));
 		right_node = t;
 
 		/* Check that nodes are adjacent */
@@ -79,8 +79,8 @@ search_again:
 			if (!t->next)
 				break;
 			t_next = t->next;
-		} while (is_marked_ref((long)t_next) || (t->key != key_node->key));
-//		} while (is_marked_ref((long)t_next) || (t->key > key_node->key));
+//		} while (is_marked_ref((long)t_next) || (t->key != key_node->key));
+		} while (is_marked_ref((long)t_next) || (t->key > key_node->key));
 		right_node = t;
 
 		/* Check that nodes are adjacent */
