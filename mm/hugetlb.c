@@ -3,7 +3,6 @@
  * (C) Nadia Yvette Chambers, April 2004
  */
 #include <linux/list.h>
-#include <linux/lockfree_list.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/mm.h>
@@ -2873,8 +2872,6 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	struct vm_area_struct *iter_vma;
 	struct address_space *mapping;
 	pgoff_t pgoff;
-	struct lockfree_list_node *node;
-	struct lockfree_list_node *onode;
 
 	/*
 	 * vm_pgoff is in PAGE_SIZE units, hence the different calculation
@@ -2891,14 +2888,7 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 	 * __unmap_hugepage_range() is called as the lock is already held
 	 */
 	i_mmap_lock_write(mapping);
-	node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
-	onode = mapping->i_mmap_head_node.next;
-	pr_info("i_mmap write lock : %s\n", __func__);
-	lockfree_list_for_each_entry(iter_vma, node, shared.linear, onode) {
-		if (&iter_vma->shared.linear == &mapping->i_mmap_tail_node)
-			break;
-		if (is_marked_ref((long)onode))
-			continue;
+	vma_interval_tree_foreach(iter_vma, &mapping->i_mmap, pgoff, pgoff) {
 		/* Do not unmap the current VMA */
 		if (iter_vma == vma)
 			continue;
@@ -2914,8 +2904,6 @@ static void unmap_ref_private(struct mm_struct *mm, struct vm_area_struct *vma,
 			unmap_hugepage_range(iter_vma, address,
 					     address + huge_page_size(h), page);
 	}
-
-	pr_debug("i_mmap write unlock : %s\n", __func__);
 	i_mmap_unlock_write(mapping);
 }
 
@@ -3506,7 +3494,6 @@ unsigned long hugetlb_change_protection(struct vm_area_struct *vma,
 
 	mmu_notifier_invalidate_range_start(mm, start, end);
 	i_mmap_lock_write(vma->vm_file->f_mapping);
-	pr_info("i_mmap write lock : %s\n", __func__);
 	for (; address < end; address += huge_page_size(h)) {
 		spinlock_t *ptl;
 		ptep = huge_pte_offset(mm, address);
@@ -3554,7 +3541,6 @@ unsigned long hugetlb_change_protection(struct vm_area_struct *vma,
 	 */
 	flush_tlb_range(vma, start, end);
 	mmu_notifier_invalidate_range(mm, start, end);
-	pr_debug("i_mmap write unlock : %s\n", __func__);
 	i_mmap_unlock_write(vma->vm_file->f_mapping);
 	mmu_notifier_invalidate_range_end(mm, start, end);
 
@@ -3731,21 +3717,12 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 	pte_t *spte = NULL;
 	pte_t *pte;
 	spinlock_t *ptl;
-	struct lockfree_list_node *node;
-	struct lockfree_list_node *onode;
 
 	if (!vma_shareable(vma, addr))
 		return (pte_t *)pmd_alloc(mm, pud, addr);
 
 	i_mmap_lock_write(mapping);
-	node = (struct lockfree_list_node *)get_unmarked_ref((long)mapping->i_mmap_head_node.next);
-	onode = mapping->i_mmap_head_node.next;
-	pr_debug("i_mmap write lock : %s\n", __func__);
-	lockfree_list_for_each_entry(svma, node, shared.linear, onode) {
-		if (&svma->shared.linear == &mapping->i_mmap_tail_node)
-			break;
-		if (is_marked_ref((long)onode))
-			continue;
+	vma_interval_tree_foreach(svma, &mapping->i_mmap, idx, idx) {
 		if (svma == vma)
 			continue;
 
@@ -3775,7 +3752,6 @@ pte_t *huge_pmd_share(struct mm_struct *mm, unsigned long addr, pud_t *pud)
 	spin_unlock(ptl);
 out:
 	pte = (pte_t *)pmd_alloc(mm, pud, addr);
-	pr_debug("i_mmap write unlock : %s\n", __func__);
 	i_mmap_unlock_write(mapping);
 	return pte;
 }

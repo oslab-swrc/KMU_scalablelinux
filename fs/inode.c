@@ -344,8 +344,7 @@ void address_space_init_once(struct address_space *mapping)
 	init_rwsem(&mapping->i_mmap_rwsem);
 	INIT_LIST_HEAD(&mapping->private_list);
 	spin_lock_init(&mapping->private_lock);
-	init_lockfree_list_head(&mapping->i_mmap, &mapping->i_mmap_head_node,
-				&mapping->i_mmap_tail_node);
+	mapping->i_mmap = RB_ROOT;
 }
 EXPORT_SYMBOL(address_space_init_once);
 
