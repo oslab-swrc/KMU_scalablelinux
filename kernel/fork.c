@@ -388,6 +388,7 @@ free_tsk:
 }
 
 #ifdef CONFIG_MMU
+extern void free_vma(struct vm_area_struct *vma);
 static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 {
 	struct vm_area_struct *mpnt, *tmp, *prev, **pprev;
@@ -454,6 +455,7 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 		tmp->vm_flags &= ~VM_LOCKED;
 		tmp->vm_next = tmp->vm_prev = NULL;
 		file = tmp->vm_file;
+		memset(&tmp->dnode, 0, sizeof(tmp->dnode));
 		if (file) {
 			struct inode *inode = file_inode(file);
 			struct address_space *mapping = file->f_mapping;
@@ -461,15 +463,16 @@ static int dup_mmap(struct mm_struct *mm, struct mm_struct *oldmm)
 			get_file(file);
 			if (tmp->vm_flags & VM_DENYWRITE)
 				atomic_dec(&inode->i_writecount);
-			i_mmap_lock_write(mapping);
+			//i_mmap_lock_write(mapping);
 			if (tmp->vm_flags & VM_SHARED)
 				atomic_inc(&mapping->i_mmap_writable);
 			flush_dcache_mmap_lock(mapping);
 			/* insert tmp into the share list, just after mpnt */
-			vma_interval_tree_insert_after(tmp, mpnt,
-					&mapping->i_mmap);
+			deferu_logical_insert(tmp, mapping);
+			//vma_interval_tree_insert_after(tmp, mpnt,
+			//		&mapping->i_mmap);
 			flush_dcache_mmap_unlock(mapping);
-			i_mmap_unlock_write(mapping);
+			//i_mmap_unlock_write(mapping);
 		}
 
 		/*
@@ -513,7 +516,8 @@ out:
 fail_nomem_anon_vma_fork:
 	mpol_put(vma_policy(tmp));
 fail_nomem_policy:
-	kmem_cache_free(vm_area_cachep, tmp);
+	free_vma(tmp);
+	//kmem_cache_free(vm_area_cachep, tmp);
 fail_nomem:
 	retval = -ENOMEM;
 	vm_unacct_memory(charge);

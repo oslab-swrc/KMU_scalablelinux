@@ -273,6 +273,7 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 	vma->vm_page_prot = vm_get_page_prot(vma->vm_flags);
 	init_lockfree_list_head(&vma->anon_vma_chain, &vma->anon_vma_chain_head_node,
 			&vma->anon_vma_chain_tail_node);
+	memset(&vma->dnode, 0, sizeof(vma->dnode));
 
 	err = insert_vm_struct(mm, vma);
 	if (err)
@@ -286,7 +287,8 @@ static int __bprm_mm_init(struct linux_binprm *bprm)
 err:
 	up_write(&mm->mmap_sem);
 	bprm->vma = NULL;
-	kmem_cache_free(vm_area_cachep, vma);
+	free_vma(vma);
+	//kmem_cache_free(vm_area_cachep, vma);
 	return err;
 }
 

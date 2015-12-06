@@ -1307,6 +1307,7 @@ static void unmap_single_vma(struct mmu_gather *tlb,
 			 */
 			if (vma->vm_file) {
 				i_mmap_lock_write(vma->vm_file->f_mapping);
+				synchronize_deferu_i_mmap(vma->vm_file->f_mapping);
 				__unmap_hugepage_range_final(tlb, vma, start, end, NULL);
 				i_mmap_unlock_write(vma->vm_file->f_mapping);
 			}
@@ -2431,6 +2432,7 @@ void unmap_mapping_range(struct address_space *mapping,
 
 	/* DAX uses i_mmap_lock to serialise file truncate vs page fault */
 	i_mmap_lock_write(mapping);
+	synchronize_deferu_i_mmap(mapping);
 	if (unlikely(!RB_EMPTY_ROOT(&mapping->i_mmap)))
 		unmap_mapping_range_tree(&mapping->i_mmap, &details);
 	i_mmap_unlock_write(mapping);

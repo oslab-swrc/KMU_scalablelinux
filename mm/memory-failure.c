@@ -56,6 +56,7 @@
 #include <linux/mm_inline.h>
 #include <linux/kfifo.h>
 #include <linux/lockfree_list.h>
+#include <linux/deferu.h>
 #include "internal.h"
 
 int sysctl_memory_failure_early_kill __read_mostly = 0;
@@ -459,7 +460,8 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	struct task_struct *tsk;
 	struct address_space *mapping = page->mapping;
 
-	i_mmap_lock_read(mapping);
+	i_mmap_lock_write(mapping);
+	synchronize_deferu_i_mmap(mapping);
 	read_lock(&tasklist_lock);
 	for_each_process(tsk) {
 		pgoff_t pgoff = page_to_pgoff(page);
@@ -481,7 +483,7 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 		}
 	}
 	read_unlock(&tasklist_lock);
-	i_mmap_unlock_read(mapping);
+	i_mmap_unlock_write(mapping);
 }
 
 /*

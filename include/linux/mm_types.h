@@ -16,6 +16,7 @@
 #include <asm/mmu.h>
 #include <linux/lockfree_list.h>
 #include <linux/llist.h>
+#include <linux/deferu.h>
 
 #ifndef AT_VECTOR_SIZE_ARCH
 #define AT_VECTOR_SIZE_ARCH 0
@@ -289,6 +290,11 @@ struct vm_area_struct {
 		struct rb_node rb;
 		unsigned long rb_subtree_last;
 	} shared;
+
+	struct deferu_i_mmap_node dnode;
+	struct llist_node llist;
+	spinlock_t deferu_lock;
+
 
 	/*
 	 * A file's MAP_PRIVATE vma can be in both i_mmap tree and anon_vma
