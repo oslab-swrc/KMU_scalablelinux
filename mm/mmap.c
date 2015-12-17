@@ -256,7 +256,8 @@ bool deferu_logical_insert(struct vm_area_struct *vma,
 
 	if (atomic_cmpxchg(&del_dnode->mark, 1, 0) != 1) {
 		atomic_set(&add_dnode->mark, 1);
-		if (!test_and_set_bit(DEFERU_OP_ADD, &vma->dnode.used)) {
+		if (!test_and_set_bit(DEFERU_OP_ADD, &vma->dnode.exist)) {
+			set_bit(DEFERU_OP_ADD,  &vma->dnode.used);
 			add_dnode->op_num = DEFERU_OP_ADD;
 			add_dnode->key = vma;
 			add_dnode->root = &mapping->i_mmap;
@@ -275,7 +276,8 @@ bool deferu_logical_remove(struct vm_area_struct *vma,
 
 	if (atomic_cmpxchg(&add_dnode->mark, 1, 0) != 1) {
 		atomic_set(&del_dnode->mark, 1);
-		if (!test_and_set_bit(DEFERU_OP_DEL, &vma->dnode.used)) {
+		if (!test_and_set_bit(DEFERU_OP_DEL, &vma->dnode.exist)) {
+			set_bit(DEFERU_OP_DEL,  &vma->dnode.used);
 			del_dnode->op_num = DEFERU_OP_DEL;
 			del_dnode->key = vma;
 			del_dnode->root = &mapping->i_mmap;
@@ -307,6 +309,7 @@ void synchronize_deferu_i_mmap(struct address_space *mapping)
 	entry = llist_reverse_order(entry);
 	llist_for_each_entry_safe(dnode, next, entry, ll_node) {
 		struct vm_area_struct *vma = ACCESS_ONCE(dnode->key);
+		clear_bit(dnode->op_num, &vma->dnode.exist);
 		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
 			deferu_physical_update(dnode->op_num, vma,
 					ACCESS_ONCE(dnode->root));
