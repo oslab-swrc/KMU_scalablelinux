@@ -278,8 +278,8 @@ static int dax_insert_mapping(struct inode *inode, struct buffer_head *bh,
 	pgoff_t size;
 	int error;
 
-	i_mmap_lock_read(mapping);
-
+	i_mmap_lock_write(mapping);
+	synchronize_deferu_i_mmap(mapping);
 	/*
 	 * Check truncate didn't happen while we were allocating a block.
 	 * If it did, this block may or may not be still allocated to the
@@ -307,7 +307,7 @@ static int dax_insert_mapping(struct inode *inode, struct buffer_head *bh,
 	error = vm_insert_mixed(vma, vaddr, pfn);
 
  out:
-	i_mmap_unlock_read(mapping);
+	i_mmap_unlock_write(mapping);
 
 	if (bh->b_end_io)
 		bh->b_end_io(bh, 1);

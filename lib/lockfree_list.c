@@ -139,7 +139,7 @@ retry:
 		 * the list, so it may not ocurr infinite loop.
 		 */
 		if ((right_node->key != node->key)) {
-			goto retry;
+			return NULL;//goto retry;
 		}
 		right_node_next = right_node->next;
 		if (!is_marked_ref((long) right_node_next))
