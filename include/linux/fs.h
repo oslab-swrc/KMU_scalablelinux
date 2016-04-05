@@ -35,6 +35,7 @@
 
 #include <asm/byteorder.h>
 #include <uapi/linux/fs.h>
+#include <linux/ldu.h>
 
 struct backing_dev_info;
 struct bdi_writeback;
@@ -430,6 +431,7 @@ struct address_space {
 	spinlock_t		tree_lock;	/* and lock protecting it */
 	atomic_t		i_mmap_writable;/* count VM_SHARED mappings */
 	struct rb_root		i_mmap;		/* tree of private and shared mappings */
+	struct deferu_head	deferuh;
 	struct rw_semaphore	i_mmap_rwsem;	/* protect tree, count, list */
 	/* Protected by tree_lock together with the radix tree */
 	unsigned long		nrpages;	/* number of total pages */
@@ -516,11 +518,22 @@ static inline void i_mmap_unlock_read(struct address_space *mapping)
 	up_read(&mapping->i_mmap_rwsem);
 }
 
+void synchronize_deferu_i_mmap(struct address_space *mapping);
+bool deferu_logical_update(struct address_space *mapping, struct deferu_node *dnode);
+bool deferu_logical_insert(struct vm_area_struct *vma,
+		struct address_space *mapping);
+bool deferu_logical_remove(struct vm_area_struct *vma,
+		struct address_space *mapping);
+
 /*
  * Might pages of this file be mapped into userspace?
  */
 static inline int mapping_mapped(struct address_space *mapping)
 {
+	down_write(&mapping->i_mmap_rwsem);
+	synchronize_deferu_i_mmap(mapping);
+	up_write(&mapping->i_mmap_rwsem);
+
 	return	!RB_EMPTY_ROOT(&mapping->i_mmap);
 }
 
@@ -2531,8 +2544,12 @@ static inline void file_end_write(struct file *file)
  * use {get,deny}_write_access() - these functions check the sign and refuse
  * to do the change if sign is wrong.
  */
+
 static inline int get_write_access(struct inode *inode)
 {
+	down_write(&inode->i_mapping->i_mmap_rwsem);
+	synchronize_deferu_i_mmap(inode->i_mapping);
+	up_write(&inode->i_mapping->i_mmap_rwsem);
 	return atomic_inc_unless_negative(&inode->i_writecount) ? 0 : -ETXTBSY;
 }
 static inline int deny_write_access(struct file *file)
