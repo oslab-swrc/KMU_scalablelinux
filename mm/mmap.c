@@ -463,10 +463,10 @@ static void validate_mm(struct mm_struct *mm)
 		struct anon_vma_chain *avc;
 
 		if (anon_vma) {
-			anon_vma_lock_read(anon_vma);
+			anon_vma_lock_write(anon_vma);
 			list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
 				anon_vma_interval_tree_verify(avc);
-			anon_vma_unlock_read(anon_vma);
+			anon_vma_unlock_write(anon_vma);
 		}
 
 		highest_address = vma->vm_end;

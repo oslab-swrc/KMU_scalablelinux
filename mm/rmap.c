@@ -543,7 +543,7 @@ struct anon_vma *page_lock_anon_vma_read(struct page *page)
 
 	/* we pinned the anon_vma, its safe to sleep */
 	rcu_read_unlock();
-	anon_vma_lock_read(anon_vma);
+	anon_vma_lock_write(anon_vma);
 
 	if (atomic_dec_and_test(&anon_vma->refcount)) {
 		/*
@@ -551,7 +551,7 @@ struct anon_vma *page_lock_anon_vma_read(struct page *page)
 		 * and bail -- can't simply use put_anon_vma() because
 		 * we'll deadlock on the anon_vma_lock_write() recursion.
 		 */
-		anon_vma_unlock_read(anon_vma);
+		anon_vma_unlock_write(anon_vma);
 		__put_anon_vma(anon_vma);
 		anon_vma = NULL;
 	}
@@ -565,7 +565,7 @@ out:
 
 void page_unlock_anon_vma_read(struct anon_vma *anon_vma)
 {
-	anon_vma_unlock_read(anon_vma);
+	anon_vma_unlock_write(anon_vma);
 }
 
 #ifdef CONFIG_ARCH_WANT_BATCHED_UNMAP_TLB_FLUSH
@@ -1701,7 +1701,7 @@ static struct anon_vma *rmap_walk_anon_lock(struct page *page,
 	if (!anon_vma)
 		return NULL;
 
-	anon_vma_lock_read(anon_vma);
+	anon_vma_lock_write(anon_vma);
 	return anon_vma;
 }
 
@@ -1746,7 +1746,7 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 		if (rwc->done && rwc->done(page))
 			break;
 	}
-	anon_vma_unlock_read(anon_vma);
+	anon_vma_unlock_write(anon_vma);
 	return ret;
 }
 
