@@ -9,6 +9,7 @@
 #include <linux/mm.h>
 #include <linux/rwsem.h>
 #include <linux/memcontrol.h>
+#include <linux/ldu.h>
 
 /*
  * The anon_vma heads a list of private "related" vmas, to scan if
@@ -55,6 +56,9 @@ struct anon_vma {
 	 * mm_take_all_locks() (mm_all_locks_mutex).
 	 */
 	struct rb_root rb_root;	/* Interval tree of private "related" vmas */
+	struct ldu_head  lduh;
+	struct llist_node llist;
+	int garbage;
 };
 
 /*
@@ -75,6 +79,8 @@ struct anon_vma_chain {
 	struct anon_vma *anon_vma;
 	struct list_head same_vma;   /* locked by mmap_sem & page_table_lock */
 	struct rb_node rb;			/* locked by anon_vma->rwsem */
+	struct ldu_anon_node dnode;
+	struct llist_node llist;
 	unsigned long rb_subtree_last;
 #ifdef CONFIG_DEBUG_VM_RB
 	unsigned long cached_vma_start, cached_vma_last;

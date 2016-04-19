@@ -464,6 +464,7 @@ static void validate_mm(struct mm_struct *mm)
 
 		if (anon_vma) {
 			anon_vma_lock_write(anon_vma);
+			synchronize_ldu_anon(anon_vma);
 			list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
 				anon_vma_interval_tree_verify(avc);
 			anon_vma_unlock_write(anon_vma);
@@ -831,9 +832,11 @@ again:			remove_next = 1 + (end > next->vm_end);
 		VM_BUG_ON_VMA(adjust_next && next->anon_vma &&
 			  anon_vma != next->anon_vma, next);
 		anon_vma_lock_write(anon_vma);
+#if 0
 		anon_vma_interval_tree_pre_update_vma(vma);
 		if (adjust_next)
 			anon_vma_interval_tree_pre_update_vma(next);
+#endif
 	}
 
 	if (root) {
@@ -891,9 +894,11 @@ again:			remove_next = 1 + (end > next->vm_end);
 	}
 
 	if (anon_vma) {
+#if 0
 		anon_vma_interval_tree_post_update_vma(vma);
 		if (adjust_next)
 			anon_vma_interval_tree_post_update_vma(next);
+#endif
 		anon_vma_unlock_write(anon_vma);
 	}
 	if (mapping)

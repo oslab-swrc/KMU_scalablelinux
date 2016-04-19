@@ -37,6 +37,7 @@
 #include <linux/freezer.h>
 #include <linux/oom.h>
 #include <linux/numa.h>
+#include <linux/ldu.h>
 
 #include <asm/tlbflush.h>
 #include "internal.h"
@@ -1900,6 +1901,7 @@ again:
 
 		cond_resched();
 		anon_vma_lock_write(anon_vma);
+		synchronize_ldu_anon(anon_vma);
 		anon_vma_interval_tree_foreach(vmac, &anon_vma->rb_root,
 					       0, ULONG_MAX) {
 			cond_resched();
