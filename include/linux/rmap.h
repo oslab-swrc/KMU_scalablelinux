@@ -37,14 +37,6 @@ struct anon_vma {
 	 */
 	atomic_t refcount;
 
-	/*
-	 * Count of child anon_vmas and VMAs which points to this anon_vma.
-	 *
-	 * This counter is used for making decision about reusing anon_vma
-	 * instead of forking new one. See comments in function anon_vma_clone.
-	 */
-	unsigned degree;
-
 	struct anon_vma *parent;	/* Parent of this anon_vma */
 
 	/*
@@ -58,7 +50,6 @@ struct anon_vma {
 	struct rb_root rb_root;	/* Interval tree of private "related" vmas */
 	struct ldu_head  lduh;
 	struct llist_node llist;
-	int garbage;
 };
 
 /*

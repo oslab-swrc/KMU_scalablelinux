@@ -86,9 +86,7 @@ static inline struct anon_vma *anon_vma_alloc(void)
 	anon_vma = kmem_cache_alloc(anon_vma_cachep, GFP_KERNEL);
 	if (anon_vma) {
 		atomic_set(&anon_vma->refcount, 1);
-		anon_vma->degree = 1;	/* Reference for first vma */
 		anon_vma->parent = anon_vma;
-		anon_vma->garbage = 0;
 		/*
 		 * Initialise the anon_vma root to point to itself. If called
 		 * from fork, the root will be reset to the parents anon_vma.
@@ -195,15 +193,15 @@ bool ldu_logical_remove(struct anon_vma_chain *avc, struct anon_vma *anon)
 
 void ldu_physical_update(int op, struct anon_vma_chain *avc, struct rb_root *root)
 {
+	struct anon_vma *anon_vma = avc->anon_vma;
+
 	if (op == LDU_OP_ADD)
 		anon_vma_interval_tree_insert(avc, root);
 	else {
-		struct anon_vma *anon_vma = avc->anon_vma;
 		anon_vma_interval_tree_remove(avc, root);
 		if (RB_EMPTY_ROOT(&anon_vma->rb_root)) {
-			if (!anon_vma->garbage) {
+			if (atomic_dec_and_test(&anon_vma->refcount)) {
 				llist_add(&anon_vma->llist, &anon_vma_cleanup_list);
-				anon_vma->garbage = 1;
 			}
 		}
 	}
@@ -231,12 +229,13 @@ void synchronize_ldu_anon(struct anon_vma *anon)
 			 * This path means that the node has removed by the LDU's update
 			 *  side upsorbing.
 			 */
-			if (RB_EMPTY_ROOT(&anon_vma->rb_root)) {
-				if (!anon_vma->garbage) {
+			if (RB_EMPTY_ROOT(&anon_vma->rb_root) &&
+					dnode->op_num == LDU_OP_ADD) {
+				if (atomic_dec_and_test(&anon_vma->refcount)) {
 					llist_add(&anon_vma->llist, &anon_vma_cleanup_list);
-					anon_vma->garbage = 1;
 				}
 			}
+
 		}
 		clear_bit(dnode->op_num, &avc->dnode.used);
 	}
@@ -262,11 +261,20 @@ static int free_avc_thread(void *dummy)
 
 		entry = llist_del_all(&anon_vma_cleanup_list);
 		llist_for_each_entry_safe(anon_node, anon_next, entry, llist) {
-			anon_node->parent->degree--;
-			put_anon_vma(anon_node);
+			if (anon_node) {
+				struct anon_vma *root = anon_node->root;
+				if (llist_empty(&anon_node->lduh.ll_head))
+					kmem_cache_free(anon_vma_cachep, anon_node);
+				if (root) {
+					if (root != anon_node && atomic_dec_and_test(&root->refcount)) {
+						if (llist_empty(&root->lduh.ll_head))
+							kmem_cache_free(anon_vma_cachep, root);
+					}
+				}
+			}
 		}
-	}
 
+	}
 	return 0;
 }
 
@@ -279,8 +287,8 @@ void avc_free_work_func(struct work_struct *work)
 	anon_vma_lock_write(anon_vma);
 	synchronize_ldu_anon(anon_vma);
 	anon_vma_unlock_write(anon_vma);
-}
 
+}
 
 static void anon_vma_chain_link(struct vm_area_struct *vma,
 				struct anon_vma_chain *avc,
@@ -351,7 +359,6 @@ int anon_vma_prepare(struct vm_area_struct *vma)
 			anon_vma_chain_link(vma, avc, anon_vma);
 			synchronize_ldu_anon(anon_vma);
 			/* vma reference or self-parent link for new root */
-			anon_vma->degree++;
 			allocated = NULL;
 			avc = NULL;
 		}
@@ -428,21 +435,8 @@ int anon_vma_clone(struct vm_area_struct *dst, struct vm_area_struct *src)
 		anon_vma = pavc->anon_vma;
 		root = lock_anon_vma_root(root, anon_vma);
 		anon_vma_chain_link(dst, avc, anon_vma);
-
-		/*
-		 * Reuse existing anon_vma if its degree lower than two,
-		 * that means it has no vma and only one anon_vma child.
-		 *
-		 * Do not chose parent anon_vma, otherwise first child
-		 * will always reuse it. Root anon_vma is never reused:
-		 * it has self-parent reference and at least one child.
-		 */
-		if (!dst->anon_vma && anon_vma != src->anon_vma &&
-				anon_vma->degree < 2)
-			dst->anon_vma = anon_vma;
 	}
-	if (dst->anon_vma)
-		dst->anon_vma->degree++;
+
 	unlock_anon_vma_root(root);
 	return 0;
 
@@ -512,7 +506,6 @@ int anon_vma_fork(struct vm_area_struct *vma, struct vm_area_struct *pvma)
 	vma->anon_vma = anon_vma;
 	anon_vma_lock_write(anon_vma);
 	anon_vma_chain_link(vma, avc, anon_vma);
-	anon_vma->parent->degree++;
 	anon_vma_unlock_write(anon_vma);
 
 	return 0;
@@ -542,8 +535,7 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 		list_del(&avc->same_vma);
 		anon_vma_chain_free(avc);
 	}
-	if (vma->anon_vma)
-		vma->anon_vma->degree--;
+
 	unlock_anon_vma_root(root);
 }
 

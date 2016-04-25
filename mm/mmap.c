@@ -538,6 +538,10 @@ static void vma_rb_erase(struct vm_area_struct *vma, struct rb_root *root)
 	rb_erase_augmented(&vma->vm_rb, root, &vma_gap_callbacks);
 }
 
+
+#include <linux/ldu.h>
+bool ldu_logical_insert(struct anon_vma_chain *avc, struct anon_vma *anon);
+bool ldu_logical_remove(struct anon_vma_chain *avc, struct anon_vma *anon);
 /*
  * vma has some anon_vma assigned, and is already inserted on that
  * anon_vma's interval trees.
@@ -557,8 +561,9 @@ anon_vma_interval_tree_pre_update_vma(struct vm_area_struct *vma)
 {
 	struct anon_vma_chain *avc;
 
-	list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
-		anon_vma_interval_tree_remove(avc, &avc->anon_vma->rb_root);
+//	list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
+//		ldu_logical_remove(avc, avc->anon_vma);
+//		anon_vma_interval_tree_remove(avc, &avc->anon_vma->rb_root);
 }
 
 static inline void
@@ -566,8 +571,9 @@ anon_vma_interval_tree_post_update_vma(struct vm_area_struct *vma)
 {
 	struct anon_vma_chain *avc;
 
-	list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
-		anon_vma_interval_tree_insert(avc, &avc->anon_vma->rb_root);
+//	list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
+//		ldu_logical_insert(avc, avc->anon_vma);
+//		anon_vma_interval_tree_insert(avc, &avc->anon_vma->rb_root);
 }
 
 static int find_vma_links(struct mm_struct *mm, unsigned long addr,
@@ -736,6 +742,7 @@ __vma_unlink(struct mm_struct *mm, struct vm_area_struct *vma,
 	vmacache_invalidate(mm);
 }
 
+
 /*
  * We cannot adjust vm_start, vm_end, vm_pgoff fields of a vma that
  * is already present in an i_mmap tree without adjusting the tree.
@@ -832,7 +839,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 		VM_BUG_ON_VMA(adjust_next && next->anon_vma &&
 			  anon_vma != next->anon_vma, next);
 		anon_vma_lock_write(anon_vma);
-#if 0
+#if 1
 		anon_vma_interval_tree_pre_update_vma(vma);
 		if (adjust_next)
 			anon_vma_interval_tree_pre_update_vma(next);
@@ -894,7 +901,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 	}
 
 	if (anon_vma) {
-#if 0
+#if 1
 		anon_vma_interval_tree_post_update_vma(vma);
 		if (adjust_next)
 			anon_vma_interval_tree_post_update_vma(next);
