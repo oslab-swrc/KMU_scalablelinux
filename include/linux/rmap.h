@@ -50,6 +50,7 @@ struct anon_vma {
 	struct rb_root rb_root;	/* Interval tree of private "related" vmas */
 	struct ldu_head  lduh;
 	struct llist_node llist;
+	struct llist_head llclean;
 };
 
 /*
