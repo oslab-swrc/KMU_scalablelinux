@@ -261,17 +261,21 @@ static int free_avc_thread(void *dummy)
 
 		entry = llist_del_all(&anon_vma_cleanup_list);
 		llist_for_each_entry_safe(anon_node, anon_next, entry, llist) {
-			if (anon_node) {
-				struct anon_vma *root = anon_node->root;
-				if (llist_empty(&anon_node->lduh.ll_head))
-					kmem_cache_free(anon_vma_cachep, anon_node);
-				if (root) {
-					if (root != anon_node && atomic_dec_and_test(&root->refcount)) {
-						if (llist_empty(&root->lduh.ll_head))
-							kmem_cache_free(anon_vma_cachep, root);
-					}
-				}
-			}
+			struct anon_vma *root = anon_node->root;
+
+			if (!llist_empty(&anon_node->lduh.ll_head)) {
+				flush_delayed_work(&anon_node->lduh.sync);
+				kmem_cache_free(anon_vma_cachep, anon_node);
+			} else
+				kmem_cache_free(anon_vma_cachep, anon_node);
+
+			if (!llist_empty(&root->lduh.ll_head)) {
+				flush_delayed_work(&root->lduh.sync);
+				if (root != anon_node && atomic_dec_and_test(&root->refcount))
+					kmem_cache_free(anon_vma_cachep, root);
+			} else
+				if (root != anon_node && atomic_dec_and_test(&root->refcount))
+					kmem_cache_free(anon_vma_cachep, root);
 		}
 
 	}
@@ -638,14 +642,14 @@ struct anon_vma *page_lock_anon_vma_read(struct page *page)
 
 	anon_vma = (struct anon_vma *) (anon_mapping - PAGE_MAPPING_ANON);
 	root_anon_vma = READ_ONCE(anon_vma->root);
-	if (down_read_trylock(&root_anon_vma->rwsem)) {
+	if (down_write_trylock(&root_anon_vma->rwsem)) {
 		/*
 		 * If the page is still mapped, then this anon_vma is still
 		 * its anon_vma, and holding the mutex ensures that it will
 		 * not go away, see anon_vma_free().
 		 */
 		if (!page_mapped(page)) {
-			up_read(&root_anon_vma->rwsem);
+			up_write(&root_anon_vma->rwsem);
 			anon_vma = NULL;
 		}
 		goto out;
