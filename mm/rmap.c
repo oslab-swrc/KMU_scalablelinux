@@ -85,6 +85,7 @@ static inline struct anon_vma *anon_vma_alloc(void)
 	anon_vma = kmem_cache_alloc(anon_vma_cachep, GFP_KERNEL);
 	if (anon_vma) {
 		atomic_set(&anon_vma->refcount, 1);
+		atomic_set(&anon_vma->refcount_free, 0);
 		anon_vma->parent = anon_vma;
 		/*
 		 * Initialise the anon_vma root to point to itself. If called
@@ -147,6 +148,7 @@ bool ldu_logical_update(struct anon_vma *anon, struct ldu_node *dnode)
 {
 	BUG_ON(!anon);
 	if (llist_add(&dnode->ll_node, &anon->lduh.ll_head)) {
+		atomic_set(&anon->refcount_free, 1);
 		queue_delayed_work(avc_wq, &anon->lduh.sync,
 				round_jiffies_relative(HZ / 2));
 	}
@@ -233,34 +235,32 @@ void avc_free_work_func(struct work_struct *work)
 
 	BUG_ON(!anon_vma);
 	BUG_ON(!anon_vma->root);
-
 	anon_vma_lock_write(anon_vma);
 	synchronize_ldu_anon(anon_vma);
 	anon_vma_unlock_write(anon_vma);
 
 	entry = llist_del_all(&anon_vma->llclean);
-	entry = llist_reverse_order(entry);
+//	entry = llist_reverse_order(entry);
 	llist_for_each_entry_safe(anode, anext, entry, llist) {
 		if (!ACCESS_ONCE(anode->dnode.used)) {
-			struct anon_vma *anon = anode->anon_vma;
-			BUG_ON(!anon);
-			if (RB_EMPTY_ROOT(&anon->rb_root) &&
-					llist_empty(&anon->lduh.ll_head)) {
-				if (atomic_dec_and_test(&anon->refcount)) {
-					struct anon_vma *root = anon->root;
-					llist_add(&anon->llist, &anon_vma_cleanup_list);
-					//kmem_cache_free(anon_vma_cachep, anon);
-					if (root != anon && atomic_dec_and_test(&root->refcount)) {
-						llist_add(&root->llist, &anon_vma_cleanup_list);
-					}
-
-				}
-			}
 			kmem_cache_free(anon_vma_chain_cachep, anode);
 		} else {
 			llist_add(&anode->llist, &anon_vma->llclean);
 		}
 	}
+
+	if (RB_EMPTY_ROOT(&anon_vma->rb_root) && llist_empty(&anon_vma->llclean)
+			&& llist_empty(&anon_vma->lduh.ll_head) &&
+			!delayed_work_pending(&anon_vma->lduh.sync)) {
+		if (atomic_dec_and_test(&anon_vma->refcount)) {
+			struct anon_vma *root = anon_vma->root;
+			llist_add(&anon_vma->llist, &anon_vma_cleanup_list);
+			if (root != anon_vma && atomic_dec_and_test(&root->refcount)) {
+				llist_add(&root->llist, &anon_vma_cleanup_list);
+			}
+		}
+	}
+	atomic_set(&anon_vma->refcount_free, 0);
 }
 
 static int free_avc_thread(void *dummy)
@@ -276,12 +276,18 @@ static int free_avc_thread(void *dummy)
 			if (delayed_work_pending(&anon_node->lduh.sync)) {
 				llist_add(&anon_node->llist, &anon_vma_cleanup_list);
 			} else {
-				kmem_cache_free(anon_vma_cachep, anon_node);
+				if (!atomic_read(&anon_node->refcount)) {
+					flush_delayed_work(&anon_node->lduh.sync);
+					kmem_cache_free(anon_vma_cachep, anon_node);
+				} else {
+					if (!atomic_read(&anon_node->refcount_free))
+						kmem_cache_free(anon_vma_cachep, anon_node);
+				//	llist_add(&anon_node->llist, &anon_vma_cleanup_list);
+				}
 			}
 		}
 	}
 }
-
 
 static void anon_vma_chain_link(struct vm_area_struct *vma,
 				struct anon_vma_chain *avc,
@@ -495,6 +501,9 @@ int anon_vma_fork(struct vm_area_struct *vma, struct vm_area_struct *pvma)
 	 * this anon_vma is freed, because the lock lives in the root.
 	 */
 	get_anon_vma(anon_vma->root);
+	//pr_info("get_anon_vma\n");
+	//pr_info("anon_vma root ref count %d\n", atomic_read(&anon_vma->root->refcount));
+
 	/* Mark this anon_vma as the one where our new (COWed) pages go. */
 	vma->anon_vma = anon_vma;
 	//anon_vma_lock_write(anon_vma);
@@ -538,6 +547,7 @@ static void anon_vma_ctor(void *data)
 
 	init_rwsem(&anon_vma->rwsem);
 	atomic_set(&anon_vma->refcount, 0);
+	atomic_set(&anon_vma->refcount_free, 0);
 	init_llist_head(&anon_vma->llclean);
 	init_ldu_head(&anon_vma->lduh);
 	anon_vma->rb_root = RB_ROOT;
