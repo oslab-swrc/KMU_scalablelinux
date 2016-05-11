@@ -14,6 +14,7 @@
 #include <linux/page-flags-layout.h>
 #include <asm/page.h>
 #include <asm/mmu.h>
+#include <linux/ldu.h>
 
 #ifndef AT_VECTOR_SIZE_ARCH
 #define AT_VECTOR_SIZE_ARCH 0
@@ -325,6 +326,9 @@ struct vm_area_struct {
 		struct rb_node rb;
 		unsigned long rb_subtree_last;
 	} shared;
+
+	struct ldu_i_mmap_node dnode;
+	struct llist_node llist;
 
 	/*
 	 * A file's MAP_PRIVATE vma can be in both i_mmap tree and anon_vma

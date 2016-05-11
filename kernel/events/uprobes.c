@@ -37,6 +37,7 @@
 #include <linux/percpu-rwsem.h>
 #include <linux/task_work.h>
 #include <linux/shmem_fs.h>
+#include <linux/ldu.h>
 
 #include <linux/uprobes.h>
 
@@ -719,7 +720,9 @@ build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
 	int more = 0;
 
  again:
-	i_mmap_lock_read(mapping);
+	i_mmap_lock_write(mapping);
+	synchronize_ldu_i_mmap(mapping);
+
 	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		if (!valid_vma(vma, is_register))
 			continue;
@@ -750,7 +753,7 @@ build_map_info(struct address_space *mapping, loff_t offset, bool is_register)
 		info->mm = vma->vm_mm;
 		info->vaddr = offset_to_vaddr(vma, offset);
 	}
-	i_mmap_unlock_read(mapping);
+	i_mmap_unlock_write(mapping);
 
 	if (!more)
 		goto out;

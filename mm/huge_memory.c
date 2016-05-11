@@ -2384,6 +2384,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 
 	anon_vma_lock_write(vma->anon_vma);
 
+
 	pte = pte_offset_map(pmd, address);
 	pte_ptl = pte_lockptr(mm, pmd);
 
@@ -3386,6 +3387,7 @@ int split_huge_page_to_list(struct page *page, struct list_head *list)
 		goto out;
 	}
 	anon_vma_lock_write(anon_vma);
+	synchronize_ldu_anon(anon_vma);
 
 	/*
 	 * Racy check if we can split the page, before freeze_page() will
