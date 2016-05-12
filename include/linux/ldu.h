@@ -7,8 +7,8 @@
 #define LDU_LINKED_LIST     0
 #define LDU_INTERVAL_TREE   1
 
-#define LDU_OP_ADD 0
-#define LDU_OP_DEL 1
+#define LDU_OP_ADD 1
+#define LDU_OP_DEL 2
 
 struct ldu_head {
 	struct delayed_work sync;

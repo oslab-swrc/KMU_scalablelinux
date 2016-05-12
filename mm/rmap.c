@@ -146,15 +146,15 @@ bool anon_vma_ldu_logical_update(struct anon_vma *anon, struct ldu_node *dnode)
 	BUG_ON(!anon);
 	if (llist_add(&dnode->ll_node, &anon->lduh.ll_head)) {
 		queue_delayed_work(avc_wq, &anon->lduh.sync,
-				round_jiffies_relative(HZ / 10));
+				round_jiffies_relative(HZ / 5));
 	}
 	return true;
 }
 
 bool anon_vma_ldu_logical_insert(struct anon_vma_chain *avc, struct anon_vma *anon)
 {
-	struct ldu_node *add_dnode = &avc->dnode.node[LDU_OP_ADD];
-	struct ldu_node *del_dnode = &avc->dnode.node[LDU_OP_DEL];
+	struct ldu_node *add_dnode = &avc->dnode.node[0];
+	struct ldu_node *del_dnode = &avc->dnode.node[1];
 
 	BUG_ON(!anon);
 	if (atomic_cmpxchg(&del_dnode->mark, 1, 0) != 1) {
@@ -172,8 +172,8 @@ bool anon_vma_ldu_logical_insert(struct anon_vma_chain *avc, struct anon_vma *an
 
 bool anon_vma_ldu_logical_remove(struct anon_vma_chain *avc, struct anon_vma *anon)
 {
-	struct ldu_node *add_dnode = &avc->dnode.node[LDU_OP_ADD];
-	struct ldu_node *del_dnode = &avc->dnode.node[LDU_OP_DEL];
+	struct ldu_node *add_dnode = &avc->dnode.node[0];
+	struct ldu_node *del_dnode = &avc->dnode.node[1];
 
 	BUG_ON(!anon);
 	if (atomic_cmpxchg(&add_dnode->mark, 1, 0) != 1) {
