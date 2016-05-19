@@ -88,7 +88,7 @@ bool i_mmap_ldu_logical_update(struct address_space *mapping,
 		struct ldu_node *dnode)
 {
 	if (llist_add(&dnode->ll_node, &mapping->lduh.ll_head)) {
-		queue_delayed_work(i_mmap_wq, &mapping->lduh.sync,
+		mod_delayed_work(i_mmap_wq, &mapping->lduh.sync,
 				round_jiffies_relative(HZ / 2));
 	}
 	return true;
@@ -101,15 +101,12 @@ bool i_mmap_ldu_logical_insert(struct vm_area_struct *vma,
 	struct ldu_node *del_dnode = &vma->dnode.node[1];
 
 	if (atomic_cmpxchg(&del_dnode->mark, 1, 0) != 1) {
-		if (atomic_cmpxchg(&add_dnode->mark, 0, 1) == 0) {
-			if (!test_and_set_bit(LDU_OP_ADD, &vma->dnode.used)) {
-				add_dnode->op_num = LDU_OP_ADD;
-				add_dnode->key = vma;
-				add_dnode->root = &mapping->i_mmap;
-				i_mmap_ldu_logical_update(mapping, add_dnode);
-			}
-		} else {
-			pr_info("error insert\n");
+		atomic_set(&add_dnode->mark, 1);
+		if (!test_and_set_bit(LDU_OP_ADD, &vma->dnode.used)) {
+			add_dnode->op_num = LDU_OP_ADD;
+			add_dnode->key = vma;
+			add_dnode->root = &mapping->i_mmap;
+			i_mmap_ldu_logical_update(mapping, add_dnode);
 		}
 	}
 
@@ -123,15 +120,12 @@ bool i_mmap_ldu_logical_remove(struct vm_area_struct *vma,
 	struct ldu_node *del_dnode = &vma->dnode.node[1];
 
 	if (atomic_cmpxchg(&add_dnode->mark, 1, 0) != 1) {
-		if (atomic_cmpxchg(&del_dnode->mark, 0, 1) == 0) {
-			if (!test_and_set_bit(LDU_OP_DEL, &vma->dnode.used)) {
-				del_dnode->op_num = LDU_OP_DEL;
-				del_dnode->key = vma;
-				del_dnode->root = &mapping->i_mmap;
-				i_mmap_ldu_logical_update(mapping, del_dnode);
-			}
-		} else {
-			pr_info("error remove\n");
+		atomic_set(&del_dnode->mark, 1);
+		if (!test_and_set_bit(LDU_OP_DEL, &vma->dnode.used)) {
+			del_dnode->op_num = LDU_OP_DEL;
+			del_dnode->key = vma;
+			del_dnode->root = &mapping->i_mmap;
+			i_mmap_ldu_logical_update(mapping, del_dnode);
 		}
 	}
 
