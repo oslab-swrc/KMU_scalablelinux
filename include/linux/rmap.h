@@ -36,7 +36,6 @@ struct anon_vma {
 	 * anon_vma if they are the last user on release
 	 */
 	atomic_t refcount;
-	atomic_t refcount_free;
 
 	struct anon_vma *parent;	/* Parent of this anon_vma */
 
@@ -52,6 +51,7 @@ struct anon_vma {
 	struct ldu_head  lduh;
 	struct llist_node llist;
 	struct llist_head llclean;
+	int dirty;
 };
 
 /*

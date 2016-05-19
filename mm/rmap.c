@@ -75,6 +75,10 @@ static struct kmem_cache *anon_vma_cachep;
 static struct kmem_cache *anon_vma_chain_cachep;
 
 static struct workqueue_struct *avc_wq;
+static struct task_struct *free_avc_task;
+
+LLIST_HEAD(avc_cleanup_list);
+LLIST_HEAD(anon_vma_cleanup_list);
 
 static inline struct anon_vma *anon_vma_alloc(void)
 {
@@ -83,12 +87,14 @@ static inline struct anon_vma *anon_vma_alloc(void)
 	anon_vma = kmem_cache_alloc(anon_vma_cachep, GFP_KERNEL);
 	if (anon_vma) {
 		atomic_set(&anon_vma->refcount, 1);
+
 		anon_vma->parent = anon_vma;
 		/*
 		 * Initialise the anon_vma root to point to itself. If called
 		 * from fork, the root will be reset to the parents anon_vma.
 		 */
 		anon_vma->root = anon_vma;
+		anon_vma->dirty = 0;
 		init_llist_head(&anon_vma->llclean);
 		anon_vma_init_ldu_head(&anon_vma->lduh);
 	}
@@ -134,7 +140,7 @@ static void anon_vma_chain_free(struct anon_vma_chain *anon_vma_chain)
 {
 	if (ACCESS_ONCE(anon_vma_chain->dnode.used)) {
 		struct anon_vma *anon_vma = anon_vma_chain->anon_vma;
-		llist_add(&anon_vma_chain->llist, &anon_vma->llclean);
+		llist_add(&anon_vma_chain->llist, &anon_vma->root->llclean);
 		return;
 	}
 
@@ -145,7 +151,7 @@ bool anon_vma_ldu_logical_update(struct anon_vma *anon, struct ldu_node *dnode)
 {
 	BUG_ON(!anon);
 	if (llist_add(&dnode->ll_node, &anon->lduh.ll_head)) {
-		queue_delayed_work(avc_wq, &anon->lduh.sync,
+		mod_delayed_work(avc_wq, &anon->lduh.sync,
 				round_jiffies_relative(HZ / 5));
 	}
 	return true;
@@ -163,7 +169,8 @@ bool anon_vma_ldu_logical_insert(struct anon_vma_chain *avc, struct anon_vma *an
 			add_dnode->op_num = LDU_OP_ADD;
 			add_dnode->key = avc;
 			add_dnode->root = &anon->rb_root;
-			anon_vma_ldu_logical_update(anon, add_dnode);
+			anon->dirty = 1;
+			anon_vma_ldu_logical_update(anon->root, add_dnode);
 		}
 	}
 
@@ -182,14 +189,16 @@ bool anon_vma_ldu_logical_remove(struct anon_vma_chain *avc, struct anon_vma *an
 			del_dnode->op_num = LDU_OP_DEL;
 			del_dnode->key = avc;
 			del_dnode->root = &anon->rb_root;
-			anon_vma_ldu_logical_update(anon, del_dnode);
+			anon->dirty = 1;
+			anon_vma_ldu_logical_update(anon->root, del_dnode);
 		}
 	}
 
 	return true;
 }
 
-void anon_vma_ldu_physical_update(int op, struct anon_vma_chain *avc, struct rb_root *root)
+void anon_vma_ldu_physical_update(int op, struct anon_vma_chain *avc,
+		struct rb_root *root)
 {
 	struct anon_vma *anon_vma = avc->anon_vma;
 
@@ -207,7 +216,6 @@ void synchronize_ldu_anon(struct anon_vma *anon)
 	struct ldu_head *lduh = &anon->lduh;
 
 	entry = llist_del_all(&lduh->ll_head);
-//	entry = llist_reverse_order(entry);
 	llist_for_each_entry_safe(dnode, next, entry, ll_node) {
 		struct anon_vma_chain *avc = ACCESS_ONCE(dnode->key);
 		struct anon_vma *anon_vma = avc->anon_vma;
@@ -227,31 +235,55 @@ void avc_free_work_func(struct work_struct *work)
 			lduh.sync.work);
 	struct llist_node *entry;
 	struct anon_vma_chain *anode, *anext;
-	struct anon_vma *anon_node, *anon_next;
+	struct anon_vma *anon, *next;
 
-	anon_vma_lock_write(anon_vma);
+	down_write(&anon_vma->rwsem);
 	synchronize_ldu_anon(anon_vma);
-	anon_vma_unlock_write(anon_vma);
+	up_write(&anon_vma->rwsem);
 
 	entry = llist_del_all(&anon_vma->llclean);
 	llist_for_each_entry_safe(anode, anext, entry, llist) {
+		struct anon_vma *anon = anode->anon_vma;
+		struct anon_vma *root = anon->root;
 		if (!ACCESS_ONCE(anode->dnode.used)) {
 			kmem_cache_free(anon_vma_chain_cachep, anode);
+			if (RB_EMPTY_ROOT(&anon->rb_root) && llist_empty(&anon->llclean)
+					&& llist_empty(&anon->lduh.ll_head) &&
+					!delayed_work_pending(&anon->lduh.sync) && anon->dirty) {
+				anon->dirty = 0;
+				if (atomic_dec_and_test(&anon->refcount)) {
+					struct anon_vma *root = anon->root;
+					BUG_ON(delayed_work_pending(&anon->lduh.sync));
+					llist_add(&anon->llist, &anon_vma_cleanup_list);
+					if (root != anon && atomic_dec_and_test(&root->refcount) &&
+							!delayed_work_pending(&root->lduh.sync)) {
+						BUG_ON(delayed_work_pending(&root->lduh.sync));
+						llist_add(&root->llist, &anon_vma_cleanup_list);
+					}
+				}
+			}
 		} else {
 			llist_add(&anode->llist, &anon_vma->llclean);
 		}
 	}
+}
 
-	if (RB_EMPTY_ROOT(&anon_vma->rb_root) && llist_empty(&anon_vma->llclean)
-			&& llist_empty(&anon_vma->lduh.ll_head)) {
-		 if (atomic_dec_and_test(&anon_vma->refcount)) {
-			 struct anon_vma *root = anon_vma->root;
-			 kmem_cache_free(anon_vma_cachep, anon_vma);
-			 if (root != anon_vma && atomic_dec_and_test(&root->refcount)) {
-				 kmem_cache_free(anon_vma_cachep, root);
-		 	 }
-		 }
+static int free_avc_thread(void *dummy)
+{
+	struct llist_node *entry;
+	struct anon_vma_chain *anode, *anext;
+	struct anon_vma *anon_node, *anon_next;
+
+	while (!kthread_should_stop()) {
+		schedule_timeout_interruptible(HZ);
+
+		entry = llist_del_all(&anon_vma_cleanup_list);
+		llist_for_each_entry_safe(anon_node, anon_next, entry, llist) {
+			kmem_cache_free(anon_vma_cachep, anon_node);
+		}
 	}
+
+	return 0;
 }
 
 static void anon_vma_chain_link(struct vm_area_struct *vma,
@@ -398,6 +430,7 @@ int anon_vma_clone(struct vm_area_struct *dst, struct vm_area_struct *src)
 		anon_vma = pavc->anon_vma;
 		//root = lock_anon_vma_root(root, anon_vma);
 		anon_vma_chain_link(dst, avc, anon_vma);
+
 	}
 
 	//unlock_anon_vma_root(root);
@@ -501,7 +534,6 @@ void unlink_anon_vmas(struct vm_area_struct *vma)
 		list_del(&avc->same_vma);
 		anon_vma_chain_free(avc);
 	}
-
 	//unlock_anon_vma_root(root);
 }
 
@@ -1960,6 +1992,12 @@ static int __init avc_init_wq(void)
 	WARN(!avc_wq, "failed to create avc workqueue\n");
 	pr_info("avc work queue initialize");
 
+	free_avc_task = kthread_create(free_avc_thread, NULL,
+			"mm_free_avc");
+	BUG_ON(IS_ERR(free_avc_task));
+	wake_up_process(free_avc_task);
+	pr_info("avc work queue initialize");
 	return 0;
 }
 __initcall(avc_init_wq);
+
