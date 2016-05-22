@@ -88,8 +88,8 @@ bool i_mmap_ldu_logical_update(struct address_space *mapping,
 		struct ldu_node *dnode)
 {
 	if (llist_add(&dnode->ll_node, &mapping->lduh.ll_head)) {
-		queue_delayed_work(i_mmap_wq, &mapping->lduh.sync,
-				round_jiffies_relative(HZ / 5));
+		mod_delayed_work(i_mmap_wq, &mapping->lduh.sync,
+				round_jiffies_relative(HZ / 100));
 	}
 	return true;
 }
