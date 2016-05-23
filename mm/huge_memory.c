@@ -3387,7 +3387,6 @@ int split_huge_page_to_list(struct page *page, struct list_head *list)
 		goto out;
 	}
 	anon_vma_lock_write(anon_vma);
-	synchronize_ldu_anon(anon_vma);
 
 	/*
 	 * Racy check if we can split the page, before freeze_page() will

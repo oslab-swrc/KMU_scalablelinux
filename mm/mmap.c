@@ -89,7 +89,7 @@ bool i_mmap_ldu_logical_update(struct address_space *mapping,
 {
 	if (llist_add(&dnode->ll_node, &mapping->lduh.ll_head)) {
 		mod_delayed_work(i_mmap_wq, &mapping->lduh.sync,
-				round_jiffies_relative(HZ / 100));
+				round_jiffies_relative(HZ / 10));
 	}
 	return true;
 }

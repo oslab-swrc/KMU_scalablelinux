@@ -151,7 +151,7 @@ bool anon_vma_ldu_logical_update(struct anon_vma *anon, struct ldu_node *dnode)
 	BUG_ON(!anon);
 	if (llist_add(&dnode->ll_node, &anon->root->lduh.ll_head)) {
 		mod_delayed_work(avc_wq, &anon->root->lduh.sync,
-				round_jiffies_relative(HZ / 100));
+				round_jiffies_relative(HZ / 10));
 	}
 	return true;
 }
@@ -245,7 +245,9 @@ void avc_free_work_func(struct work_struct *work)
 		if (!READ_ONCE(anode->dnode.used)) {
 			struct anon_vma *anon = anode->anon_vma;
 			kmem_cache_free(anon_vma_chain_cachep, anode);
-			if (atomic_dec_and_test(&anon->refcount_free) && anon != anon_vma &&
+			if (anon == anon_vma)
+				continue;
+			if (atomic_dec_and_test(&anon->refcount_free) &&
 					RB_EMPTY_ROOT(&anon->rb_root) &&
 					llist_empty(&anon->llclean) &&
 					 llist_empty(&anon->lduh.ll_head) &&
@@ -546,7 +548,7 @@ static void anon_vma_ctor(void *data)
 void __init anon_vma_init(void)
 {
 	anon_vma_cachep = kmem_cache_create("anon_vma", sizeof(struct anon_vma),
-			0, SLAB_PANIC|SLAB_ACCOUNT,
+			0, SLAB_DESTROY_BY_RCU|SLAB_PANIC|SLAB_ACCOUNT,
 			anon_vma_ctor);
 	anon_vma_chain_cachep = KMEM_CACHE(anon_vma_chain,
 			SLAB_PANIC|SLAB_ACCOUNT);
@@ -661,7 +663,6 @@ struct anon_vma *page_lock_anon_vma_read(struct page *page)
 	/* we pinned the anon_vma, its safe to sleep */
 	rcu_read_unlock();
 	anon_vma_lock_write(anon_vma);
-	synchronize_ldu_anon(anon_vma);
 
 	if (atomic_dec_and_test(&anon_vma->refcount)) {
 		/*
@@ -1857,6 +1858,7 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 		return ret;
 
 	pgoff = page_to_pgoff(page);
+	synchronize_ldu_anon(anon_vma);
 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff, pgoff) {
 		struct vm_area_struct *vma = avc->vma;
 		unsigned long address = vma_address(page, vma);
