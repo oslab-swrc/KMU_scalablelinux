@@ -34,13 +34,18 @@ struct ldu_i_mmap_node {
 };
 
 
-void avc_free_work_func(struct work_struct *work);
+struct pldu_deferred {
+	struct llist_head list;
+	struct delayed_work wq;
+};
+
+
+
 
 
 static inline void anon_vma_init_ldu_head(struct ldu_head *dp)
 {
 	init_llist_head(&dp->ll_head);
-	INIT_DELAYED_WORK(&dp->sync, avc_free_work_func);
 }
 
 void i_mmap_free_work_func(struct work_struct *work);

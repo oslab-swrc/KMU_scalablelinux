@@ -180,8 +180,8 @@ void i_mmap_free_work_func(struct work_struct *work)
 	struct llist_node *entry;
 	struct vm_area_struct *vnode, *vnext;
 
-	i_mmap_lock_write(mapping);
 	entry = llist_del_all(&mapping->llclean);
+	i_mmap_lock_write(mapping);
 	synchronize_ldu_i_mmap(mapping);
 	i_mmap_unlock_write(mapping);
 
