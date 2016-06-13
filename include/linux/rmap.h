@@ -115,25 +115,21 @@ static inline void put_anon_vma(struct anon_vma *anon_vma)
 
 static inline void anon_vma_lock_write(struct anon_vma *anon_vma)
 {
-	//anon_vma_global_lock();
 	down_write(&anon_vma->root->rwsem);
 }
 
 static inline void anon_vma_unlock_write(struct anon_vma *anon_vma)
 {
-	//anon_vma_global_unlock();
 	up_write(&anon_vma->root->rwsem);
 }
 
 static inline void anon_vma_lock_read(struct anon_vma *anon_vma)
 {
-	//anon_vma_global_lock();
 	down_read(&anon_vma->root->rwsem);
 }
 
 static inline void anon_vma_unlock_read(struct anon_vma *anon_vma)
 {
-	//anon_vma_global_unlock();
 	up_read(&anon_vma->root->rwsem);
 }
 
