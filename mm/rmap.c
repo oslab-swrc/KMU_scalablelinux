@@ -1826,8 +1826,6 @@ static struct anon_vma *rmap_walk_anon_lock(struct page *page,
 		return NULL;
 
 	anon_vma_lock_write(anon_vma);
-	anon_vma_global_lock();
-	synchronize_ldu_anon();
 	return anon_vma;
 }
 
@@ -1857,6 +1855,7 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 		return ret;
 
 	pgoff = page_to_pgoff(page);
+	anon_vma_global_lock();
 	synchronize_ldu_anon();
 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff, pgoff) {
 		struct vm_area_struct *vma = avc->vma;
