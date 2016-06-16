@@ -253,11 +253,16 @@ static void i_callback(struct rcu_head *head)
 	kmem_cache_free(inode_cachep, inode);
 }
 
+extern void clean_percore_mapping(struct address_space *mapping);
+
+
 static void destroy_inode(struct inode *inode)
 {
 	BUG_ON(!list_empty(&inode->i_lru));
-	if (inode->i_mapping && !llist_empty(&inode->i_mapping->lduh.ll_head)) {
-		flush_delayed_work(&inode->i_mapping->lduh.sync);
+	if (inode->i_mapping) {
+		down_write(&inode->i_mapping->i_mmap_rwsem);
+		up_write(&inode->i_mapping->i_mmap_rwsem);
+		clean_percore_mapping(inode->i_mapping);
 	}
 
 	__destroy_inode(inode);

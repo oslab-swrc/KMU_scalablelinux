@@ -220,7 +220,7 @@ void anon_vma_ldu_physical_update(int op, struct anon_vma_chain *avc,
 		anon_vma_interval_tree_remove(avc, root);
 }
 
-void synchronize_ldu_2(struct llist_head *head)
+void synchronize_ldu_anon_internal(struct llist_head *head)
 {
 	struct llist_node *entry;
 	struct ldu_node *dnode;
@@ -240,13 +240,11 @@ void synchronize_ldu_anon(void)
 {
 	int cpu;
 
-	anon_vma_global_lock();
 	for_each_possible_cpu(cpu) {
 		struct pldu_deferred *pd;
 		pd = &per_cpu(pldu_anon_vma_deferred, cpu);
-		synchronize_ldu_2(&pd->list);
+		synchronize_ldu_anon_internal(&pd->list);
 	}
-	anon_vma_global_unlock();
 }
 EXPORT_SYMBOL_GPL(synchronize_ldu_anon);
 
@@ -259,7 +257,9 @@ static int free_avc_thread(void *dummy)
 
 	while (!kthread_should_stop()) {
 		schedule_timeout_interruptible(HZ);
+		anon_vma_global_lock();
 		synchronize_ldu_anon();
+		anon_vma_global_unlock();
 
 		for_each_possible_cpu(cpu) {
 			struct llist_head *ll;
@@ -1826,6 +1826,7 @@ static struct anon_vma *rmap_walk_anon_lock(struct page *page,
 		return NULL;
 
 	anon_vma_lock_write(anon_vma);
+	anon_vma_global_lock();
 	synchronize_ldu_anon();
 	return anon_vma;
 }
@@ -1872,6 +1873,7 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 		if (rwc->done && rwc->done(page))
 			break;
 	}
+	anon_vma_global_unlock();
 	anon_vma_unlock_write(anon_vma);
 	return ret;
 }
