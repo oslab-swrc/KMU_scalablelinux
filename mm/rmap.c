@@ -348,7 +348,7 @@ int anon_vma_prepare(struct vm_area_struct *vma)
 			allocated = anon_vma;
 		}
 
-		//anon_vma_lock_write(anon_vma);
+		anon_vma_lock_write(anon_vma);
 		/* page_table_lock to protect against threads */
 		spin_lock(&mm->page_table_lock);
 		if (likely(!vma->anon_vma)) {
@@ -359,7 +359,7 @@ int anon_vma_prepare(struct vm_area_struct *vma)
 			avc = NULL;
 		}
 		spin_unlock(&mm->page_table_lock);
-		//anon_vma_unlock_write(anon_vma);
+		anon_vma_unlock_write(anon_vma);
 
 		if (unlikely(allocated))
 			put_anon_vma(allocated);
@@ -598,6 +598,10 @@ struct anon_vma *page_get_anon_vma(struct page *page)
 		anon_vma = NULL;
 		goto out;
 	}
+
+	anon_vma_global_lock();
+	synchronize_ldu_anon();
+	anon_vma_global_unlock();
 
 	/*
 	 * If this page is still mapped, then its anon_vma cannot have been
@@ -1850,13 +1854,15 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 	struct anon_vma_chain *avc;
 	int ret = SWAP_AGAIN;
 
-	anon_vma = rmap_walk_anon_lock(page, rwc);
-	if (!anon_vma)
-		return ret;
-
-	pgoff = page_to_pgoff(page);
 	anon_vma_global_lock();
+	anon_vma = rmap_walk_anon_lock(page, rwc);
+	if (!anon_vma) {
+		anon_vma_global_unlock();
+		return ret;
+	}
+
 	synchronize_ldu_anon();
+	pgoff = page_to_pgoff(page);
 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff, pgoff) {
 		struct vm_area_struct *vma = avc->vma;
 		unsigned long address = vma_address(page, vma);
@@ -1872,8 +1878,8 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 		if (rwc->done && rwc->done(page))
 			break;
 	}
-	anon_vma_global_unlock();
 	anon_vma_unlock_write(anon_vma);
+	anon_vma_global_unlock();
 	return ret;
 }
 
@@ -1908,9 +1914,9 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 	if (!mapping)
 		return ret;
 
-	pgoff = page_to_pgoff(page);
 	i_mmap_lock_write(mapping);
 	synchronize_ldu_i_mmap(mapping);
+	pgoff = page_to_pgoff(page);
 	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		unsigned long address = vma_address(page, vma);
 
