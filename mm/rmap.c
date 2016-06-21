@@ -589,6 +589,10 @@ struct anon_vma *page_get_anon_vma(struct page *page)
 	struct anon_vma *anon_vma = NULL;
 	unsigned long anon_mapping;
 
+	anon_vma_global_lock();
+	synchronize_ldu_anon();
+	anon_vma_global_unlock();
+
 	rcu_read_lock();
 	anon_mapping = (unsigned long)READ_ONCE(page->mapping);
 	if ((anon_mapping & PAGE_MAPPING_FLAGS) != PAGE_MAPPING_ANON)
@@ -1968,6 +1972,9 @@ static void __hugepage_set_anon_rmap(struct page *page,
 	anon_vma = (void *) anon_vma + PAGE_MAPPING_ANON;
 	page->mapping = (struct address_space *) anon_vma;
 	page->index = linear_page_index(vma, address);
+	anon_vma_global_lock();
+	synchronize_ldu_anon();
+	anon_vma_global_unlock();
 }
 
 void hugepage_add_anon_rmap(struct page *page,

@@ -85,7 +85,7 @@ static struct task_struct *free_vma_task;
 #define I_MMAP_HASH_ORDER	16
 #define I_MMAP_HASH_SIZE (1 << I_MMAP_HASH_ORDER)
 
-struct pldu_deferred_i_mmap{
+struct pldu_deferred_i_mmap {
 	struct llist_head list;
 	struct delayed_work sync;
 	struct address_space *mapping;
@@ -113,7 +113,6 @@ bool i_mmap_ldu_logical_update(struct address_space *mapping,
 
 	slot = &get_cpu_var(i_mmap_slot);
 	p = &slot->mapping[hash_ptr(mapping, I_MMAP_HASH_ORDER)];
-	//pr_info("per core address core [%d], address : [%lx]\n", smp_processor_id(), (long)p);
 
 	if (READ_ONCE(p->mapping) != mapping) {
 		if (READ_ONCE(p->mapping)) {
@@ -191,8 +190,6 @@ void synchronize_ldu_i_mmap_internal(struct address_space *mapping,
 	llist_for_each_entry(dnode, entry, ll_node) {
 		struct vm_area_struct *vma = READ_ONCE(dnode->key);
 		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
-			//if (file->f_mapping != mapping)
-			//	pr_info("mapping not equal : old %lx\n", (long)file->f_mapping);
 			i_mmap_ldu_physical_update(dnode->op_num, vma,
 						READ_ONCE(dnode->root));
 
@@ -240,13 +237,16 @@ void clean_percore_mapping(struct address_space *mapping)
 	struct ldu_node *dnode;
 	struct address_space *old;
 
+	down_write(&mapping->i_mmap_rwsem);
 	for_each_possible_cpu(cpu) {
 		slot = &per_cpu(i_mmap_slot, cpu);
 		p = &slot->mapping[hash_ptr(mapping, I_MMAP_HASH_ORDER)];
 		if (READ_ONCE(p->mapping) != mapping)
 			continue;
+		synchronize_ldu_i_mmap_internal(mapping, &slot->mapping[cpu].list);
 		p->mapping = NULL;
 	}
+	up_write(&mapping->i_mmap_rwsem);
 }
 
 static struct llist_node *free_entry[NR_CPUS];
