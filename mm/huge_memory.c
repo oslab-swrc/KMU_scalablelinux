@@ -2382,8 +2382,9 @@ static void collapse_huge_page(struct mm_struct *mm,
 		goto out;
 	}
 
+	anon_vma_global_lock();
 	anon_vma_lock_write(vma->anon_vma);
-
+	synchronize_ldu_anon();
 
 	pte = pte_offset_map(pmd, address);
 	pte_ptl = pte_lockptr(mm, pmd);
@@ -2418,6 +2419,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 		pmd_populate(mm, pmd, pmd_pgtable(_pmd));
 		spin_unlock(pmd_ptl);
 		anon_vma_unlock_write(vma->anon_vma);
+		anon_vma_global_unlock();
 		result = SCAN_FAIL;
 		goto out;
 	}
@@ -2427,6 +2429,7 @@ static void collapse_huge_page(struct mm_struct *mm,
 	 * can't run anymore.
 	 */
 	anon_vma_unlock_write(vma->anon_vma);
+	anon_vma_global_unlock();
 
 	__collapse_huge_page_copy(pte, new_page, vma, address, pte_ptl);
 	pte_unmap(pte);
@@ -3386,7 +3389,10 @@ int split_huge_page_to_list(struct page *page, struct list_head *list)
 		ret = -EBUSY;
 		goto out;
 	}
+	anon_vma_global_lock();
+
 	anon_vma_lock_write(anon_vma);
+	synchronize_ldu_anon();
 
 	/*
 	 * Racy check if we can split the page, before freeze_page() will
@@ -3433,6 +3439,7 @@ int split_huge_page_to_list(struct page *page, struct list_head *list)
 
 out_unlock:
 	anon_vma_unlock_write(anon_vma);
+	anon_vma_global_unlock();
 	put_anon_vma(anon_vma);
 out:
 	count_vm_event(!ret ? THP_SPLIT_PAGE : THP_SPLIT_PAGE_FAILED);

@@ -75,6 +75,7 @@ struct anon_vma_chain {
 	struct ldu_anon_node dnode;
 	struct llist_node llist;
 	unsigned long rb_subtree_last;
+	unsigned int garbage;
 #ifdef CONFIG_DEBUG_VM_RB
 	unsigned long cached_vma_start, cached_vma_last;
 #endif

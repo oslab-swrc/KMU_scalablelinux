@@ -48,13 +48,11 @@ static inline void anon_vma_init_ldu_head(struct ldu_head *dp)
 	init_llist_head(&dp->ll_head);
 }
 
-void i_mmap_free_work_func(struct work_struct *work);
 
 void i_mmap_ldu_physical_update(int op, struct vm_area_struct *vma, struct rb_root *root);
 static inline void i_mmap_init_ldu_head(struct ldu_head *dp)
 {
 	init_llist_head(&dp->ll_head);
-	INIT_DELAYED_WORK(&dp->sync, i_mmap_free_work_func);
 }
 
 

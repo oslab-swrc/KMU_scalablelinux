@@ -260,9 +260,11 @@ static void destroy_inode(struct inode *inode)
 {
 	BUG_ON(!list_empty(&inode->i_lru));
 	if (inode->i_mapping) {
-		down_write(&inode->i_mapping->i_mmap_rwsem);
-		up_write(&inode->i_mapping->i_mmap_rwsem);
 		clean_percore_mapping(inode->i_mapping);
+		if (rwsem_is_locked(&inode->i_mapping->i_mmap_rwsem)) {
+			down_write(&inode->i_mapping->i_mmap_rwsem);
+			up_write(&inode->i_mapping->i_mmap_rwsem);
+		}
 	}
 
 	__destroy_inode(inode);

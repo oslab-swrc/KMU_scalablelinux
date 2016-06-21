@@ -249,25 +249,29 @@ void synchronize_ldu_anon(void)
 EXPORT_SYMBOL_GPL(synchronize_ldu_anon);
 
 
+static struct llist_node *free_entry[NR_CPUS];
+
 static int free_avc_thread(void *dummy)
 {
-	struct llist_node *entry;
 	struct anon_vma_chain *anode, *anext;
 	int cpu;
+	struct llist_head *ll;
 
 	while (!kthread_should_stop()) {
 		schedule_timeout_interruptible(HZ);
+		for_each_possible_cpu(cpu) {
+			ll = &per_cpu(pldu_avc_clean, cpu);
+			free_entry[cpu] = llist_del_all(ll);
+		}
 		anon_vma_global_lock();
 		synchronize_ldu_anon();
 		anon_vma_global_unlock();
 
 		for_each_possible_cpu(cpu) {
-			struct llist_head *ll;
 			ll = &per_cpu(pldu_avc_clean, cpu);
-			entry = llist_del_all(ll);
-			llist_for_each_entry_safe(anode, anext, entry, llist) {
+			llist_for_each_entry_safe(anode, anext, free_entry[cpu], llist) {
+				struct anon_vma *anon = anode->anon_vma;
 				if (!READ_ONCE(anode->dnode.used)) {
-					struct anon_vma *anon = anode->anon_vma;
 					kmem_cache_free(anon_vma_chain_cachep, anode);
 					if (atomic_dec_and_test(&anon->refcount_free) &&
 							RB_EMPTY_ROOT(&anon->rb_root)) {
@@ -277,8 +281,7 @@ static int free_avc_thread(void *dummy)
 							anon_vma_free(root);
 					}
 				} else {
-					struct llist_head *lh = this_cpu_ptr(&pldu_avc_clean);
-					llist_add(&anode->llist, lh);
+					llist_add(&anode->llist, ll);
 				}
 			}
 		}
@@ -599,10 +602,6 @@ struct anon_vma *page_get_anon_vma(struct page *page)
 		goto out;
 	}
 
-	anon_vma_global_lock();
-	synchronize_ldu_anon();
-	anon_vma_global_unlock();
-
 	/*
 	 * If this page is still mapped, then its anon_vma cannot have been
 	 * freed.  But if it has been unmapped, we have no security against the
@@ -617,6 +616,7 @@ struct anon_vma *page_get_anon_vma(struct page *page)
 	}
 out:
 	rcu_read_unlock();
+
 
 	return anon_vma;
 }
