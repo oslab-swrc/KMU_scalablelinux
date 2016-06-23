@@ -261,17 +261,15 @@ static void destroy_inode(struct inode *inode)
 	BUG_ON(!list_empty(&inode->i_lru));
 	if (inode->i_mapping) {
 		clean_percore_mapping(inode->i_mapping);
-		if (rwsem_is_locked(&inode->i_mapping->i_mmap_rwsem)) {
-			down_write(&inode->i_mapping->i_mmap_rwsem);
-			up_write(&inode->i_mapping->i_mmap_rwsem);
-		}
+		down_write(&inode->i_mapping->i_mmap_rwsem);
+		up_write(&inode->i_mapping->i_mmap_rwsem);
+	} else {
+		__destroy_inode(inode);
+		if (inode->i_sb->s_op->destroy_inode)
+			inode->i_sb->s_op->destroy_inode(inode);
+		else
+			call_rcu(&inode->i_rcu, i_callback);
 	}
-
-	__destroy_inode(inode);
-	if (inode->i_sb->s_op->destroy_inode)
-		inode->i_sb->s_op->destroy_inode(inode);
-	else
-		call_rcu(&inode->i_rcu, i_callback);
 }
 
 /**

@@ -281,6 +281,7 @@ static int free_avc_thread(void *dummy)
 							anon_vma_free(root);
 					}
 				} else {
+					ll = this_cpu_ptr(&pldu_avc_clean);
 					llist_add(&anode->llist, ll);
 				}
 			}

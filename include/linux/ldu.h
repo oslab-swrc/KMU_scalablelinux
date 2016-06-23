@@ -17,6 +17,7 @@ struct ldu_head {
 
 struct ldu_node {
 	void *key;
+	void *key2;
 	atomic_t mark;
 	int op_num;
 	struct rb_root *root;
