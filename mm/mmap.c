@@ -91,6 +91,7 @@ struct pldu_deferred_i_mmap {
 
 struct i_mmap_slot {
 	struct pldu_deferred_i_mmap mapping[1 << I_MMAP_HASH_ORDER];
+	atomic_t reference;
 	spinlock_t lock;
 };
 
@@ -112,6 +113,7 @@ bool i_mmap_ldu_logical_update(struct address_space *mapping,
 	struct llist_node *first;
 	struct llist_node *entry;
 	struct ldu_node *ldu;
+	struct address_space *locked_mapping = NULL;
 
 	slot = &get_cpu_var(i_mmap_slot);
 	p = &slot->mapping[hash_ptr(mapping, I_MMAP_HASH_ORDER)];
@@ -120,12 +122,15 @@ bool i_mmap_ldu_logical_update(struct address_space *mapping,
 		ldu = llist_entry(first, struct ldu_node, ll_node);
 		if (READ_ONCE(ldu->root) != READ_ONCE(dnode->root)) {
 			//pr_info("conflict hash table\n");
+			locked_mapping = READ_ONCE(ldu->key2);
 			entry = llist_del_all(&p->list);
 			llist_add(&dnode->ll_node, &p->list);
 			put_cpu_var(i_mmap_slot);
+			down_write(&locked_mapping->i_mmap_rwsem);
 			if (entry) {
-				synchronize_ldu_i_mmap_internal_lock(entry);
+				synchronize_ldu_i_mmap_internal(entry);
 			}
+			up_write(&locked_mapping->i_mmap_rwsem);
 			goto out;
 		}
 	}
@@ -192,12 +197,14 @@ void i_mmap_ldu_physical_update(int op, struct vm_area_struct *vma,
 void synchronize_ldu_i_mmap_internal(struct llist_node *entry)
 {
 	struct ldu_node *dnode;
+	struct address_space *mapping;
+	struct vm_area_struct *vma;
 
 	llist_for_each_entry(dnode, entry, ll_node) {
-		struct vm_area_struct *vma = READ_ONCE(dnode->key);
+		vma = READ_ONCE(dnode->key);
 		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
 			i_mmap_ldu_physical_update(dnode->op_num, vma,
-						READ_ONCE(dnode->root));
+					READ_ONCE(dnode->root));
 
 		}
 		clear_bit(dnode->op_num, &vma->dnode.used);
@@ -215,11 +222,7 @@ void synchronize_ldu_i_mmap_internal_lock(struct llist_node *entry)
 
 	llist_for_each_entry(dnode, entry, ll_node) {
 		vma = READ_ONCE(dnode->key);
-		mapping = READ_ONCE(dnode->key2);
-		if (locked_mapping && mapping != locked_mapping) {
-			pr_info("error locked mapping \n");
-			break;
-		}
+
 		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
 			if (!locked) {
 				locked_mapping = READ_ONCE(dnode->key2);
@@ -229,9 +232,9 @@ void synchronize_ldu_i_mmap_internal_lock(struct llist_node *entry)
 					locked = 1;
 				}
 			}
+
 			i_mmap_ldu_physical_update(dnode->op_num, vma,
 						READ_ONCE(dnode->root));
-
 		}
 		clear_bit(dnode->op_num, &vma->dnode.used);
 	}
@@ -327,6 +330,8 @@ static int free_vma_thread(void *dummy)
 	struct address_space *mapping;
 	struct llist_node *entry;
 	struct llist_head *ll;
+	struct address_space *locked_mapping = NULL;
+	struct ldu_node *ldu;
 
 	while (!kthread_should_stop()) {
 		schedule_timeout_interruptible(HZ);
@@ -342,7 +347,11 @@ static int free_vma_thread(void *dummy)
 				entry = llist_del_all(&slot->mapping[i].list);
 				if (!entry)
 					continue;
-				synchronize_ldu_i_mmap_internal_lock(entry);
+				ldu = llist_entry(entry, struct ldu_node, ll_node);
+				locked_mapping = READ_ONCE(ldu->key2);
+				down_write(&locked_mapping->i_mmap_rwsem);
+				synchronize_ldu_i_mmap_internal(entry);
+				up_write(&locked_mapping->i_mmap_rwsem);
 			}
 		}
 

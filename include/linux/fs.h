@@ -692,6 +692,7 @@ struct inode {
 #endif
 
 	void			*i_private; /* fs or device private pointer */
+	struct llist_node llist;
 };
 
 static inline int inode_unhashed(struct inode *inode)
