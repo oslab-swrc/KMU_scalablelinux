@@ -273,10 +273,9 @@ static void free_work(struct work_struct *w)
 		return;
 
 	llist_for_each_entry_safe(inode, next, entry, llist) {
-		if (inode->i_sb->s_op->destroy_inode)
-			inode->i_sb->s_op->destroy_inode(inode);
-		else
-			call_rcu(&inode->i_rcu, i_callback);
+		if (!inode || !inode->i_sb || !inode->i_sb->s_op)
+			continue;
+		call_rcu(&inode->i_rcu, i_callback);
 	}
 }
 
@@ -286,9 +285,14 @@ static void destroy_inode(struct inode *inode)
 	if (inode->i_mapping) {
 		struct ifree_deferred *p = this_cpu_ptr(&ifree_deferred);
 		__destroy_inode(inode);
-		llist_add(&inode->llist, &p->list);
-		mod_delayed_work(inode_wq, &p->wq,
-				round_jiffies_relative(HZ * 5));
+
+		if (inode->i_sb->s_op->destroy_inode)
+			inode->i_sb->s_op->destroy_inode(inode);
+		else {
+			llist_add(&inode->llist, &p->list);
+			mod_delayed_work(inode_wq, &p->wq,
+					round_jiffies_relative(HZ * 10));
+		}
 	} else {
 		__destroy_inode(inode);
 		if (inode->i_sb->s_op->destroy_inode)
@@ -296,7 +300,6 @@ static void destroy_inode(struct inode *inode)
 		else
 			call_rcu(&inode->i_rcu, i_callback);
 	}
-
 }
 
 /**

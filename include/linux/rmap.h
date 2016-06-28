@@ -95,10 +95,9 @@ enum ttu_flags {
 					 * do a final flush if necessary */
 };
 
+void synchronize_ldu_anon(struct anon_vma *anon_vma);
 void anon_vma_global_lock(void);
 void anon_vma_global_unlock(void);
-
-void synchronize_ldu_anon(void);
 
 #ifdef CONFIG_MMU
 static inline void get_anon_vma(struct anon_vma *anon_vma)

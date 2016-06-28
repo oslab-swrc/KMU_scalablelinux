@@ -91,8 +91,6 @@ struct pldu_deferred_i_mmap {
 
 struct i_mmap_slot {
 	struct pldu_deferred_i_mmap mapping[1 << I_MMAP_HASH_ORDER];
-	atomic_t reference;
-	spinlock_t lock;
 };
 
 static DEFINE_PER_CPU(struct i_mmap_slot, i_mmap_slot);
@@ -763,7 +761,7 @@ static void validate_mm(struct mm_struct *mm)
 
 		if (anon_vma) {
 			anon_vma_lock_write(anon_vma);
-			synchronize_ldu_anon();
+			synchronize_ldu_anon(anon_vma);
 			list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
 				anon_vma_interval_tree_verify(avc);
 			anon_vma_unlock_write(anon_vma);
@@ -2465,7 +2463,7 @@ int expand_upwards(struct vm_area_struct *vma, unsigned long address)
 	 * anon_vma lock to serialize against concurrent expand_stacks.
 	 */
 	anon_vma_lock_write(vma->anon_vma);
-	synchronize_ldu_anon();
+	synchronize_ldu_anon(vma->anon_vma);
 
 	/* Somebody else might have raced and expanded it already */
 	if (address > vma->vm_end) {
@@ -3775,7 +3773,6 @@ static int __init i_mmap_init_wq(void)
 
 		slot = &per_cpu(i_mmap_slot, i);
 
-		spin_lock_init(&slot->lock);
 		for (j = 0; j < I_MMAP_HASH_SIZE; j++) {
 			struct pldu_deferred_i_mmap *pldu = &slot->mapping[j];
 			init_llist_head(&pldu->list);

@@ -1900,9 +1900,8 @@ again:
 		struct vm_area_struct *vma;
 
 		cond_resched();
-		anon_vma_global_lock();
 		anon_vma_lock_write(anon_vma);
-		synchronize_ldu_anon();
+		synchronize_ldu_anon(anon_vma);
 		anon_vma_interval_tree_foreach(vmac, &anon_vma->rb_root,
 					       0, ULONG_MAX) {
 			cond_resched();
@@ -1925,18 +1924,18 @@ again:
 			ret = rwc->rmap_one(page, vma,
 					rmap_item->address, rwc->arg);
 			if (ret != SWAP_AGAIN) {
-				anon_vma_unlock_write(anon_vma);
 				anon_vma_global_unlock();
+				anon_vma_unlock_write(anon_vma);
 				goto out;
 			}
 			if (rwc->done && rwc->done(page)) {
-				anon_vma_unlock_write(anon_vma);
 				anon_vma_global_unlock();
+				anon_vma_unlock_write(anon_vma);
 				goto out;
 			}
 		}
-		anon_vma_unlock_write(anon_vma);
 		anon_vma_global_unlock();
+		anon_vma_unlock_write(anon_vma);
 	}
 	if (!search_new_forks++)
 		goto again;

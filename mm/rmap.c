@@ -89,7 +89,7 @@ static inline struct anon_vma *anon_vma_alloc(void)
 		atomic_set(&anon_vma->refcount, 1);
 		atomic_set(&anon_vma->refcount_free, 0);
 
-		anon_vma->parent = anon_vma;
+		anon_vma->parent = 0;
 		/*
 		 * Initialise the anon_vma root to point to itself. If called
 		 * from fork, the root will be reset to the parents anon_vma.
@@ -181,6 +181,7 @@ bool anon_vma_ldu_logical_insert(struct anon_vma_chain *avc, struct anon_vma *an
 		if (!test_and_set_bit(LDU_OP_ADD, &avc->dnode.used)) {
 			add_dnode->op_num = LDU_OP_ADD;
 			add_dnode->key = avc;
+			add_dnode->key2= anon->root;
 			add_dnode->root = &anon->rb_root;
 			anon_vma_ldu_logical_update(anon, add_dnode);
 		}
@@ -201,6 +202,7 @@ bool anon_vma_ldu_logical_remove(struct anon_vma_chain *avc, struct anon_vma *an
 		if (!test_and_set_bit(LDU_OP_DEL, &avc->dnode.used)) {
 			del_dnode->op_num = LDU_OP_DEL;
 			del_dnode->key = avc;
+			del_dnode->key2= anon->root;
 			del_dnode->root = &anon->rb_root;
 			anon_vma_ldu_logical_update(anon, del_dnode);
 		}
@@ -236,18 +238,70 @@ void synchronize_ldu_anon_internal(struct llist_head *head)
 	}
 }
 
-void synchronize_ldu_anon(void)
+void synchronize_ldu_anon(struct anon_vma *anon_vma)
 {
 	int cpu;
+	struct ldu_node *dnode;
+	struct anon_vma *root = NULL;
+	struct anon_vma_chain *avc;
+	struct llist_node *log_entry_locked[NR_CPUS];
 
+	anon_vma_global_lock();
 	for_each_possible_cpu(cpu) {
 		struct pldu_deferred *pd;
 		pd = &per_cpu(pldu_anon_vma_deferred, cpu);
 		synchronize_ldu_anon_internal(&pd->list);
 	}
+
+	return;
 }
 EXPORT_SYMBOL_GPL(synchronize_ldu_anon);
 
+
+void synchronize_ldu_anon_with_lock(void)
+{
+	struct ldu_node *dnode;
+	struct anon_vma *root = NULL;
+	int cpu;
+	struct anon_vma_chain *avc;
+	struct llist_node *log_entry[NR_CPUS];
+
+	for_each_possible_cpu(cpu) {
+		struct pldu_deferred *pd;
+		pd = &per_cpu(pldu_anon_vma_deferred, cpu);
+		log_entry[cpu] = llist_del_all(&pd->list);
+	}
+
+	for_each_possible_cpu(cpu) {
+		llist_for_each_entry(dnode, log_entry[cpu], ll_node) {
+			avc = READ_ONCE(dnode->key);
+			root = READ_ONCE(dnode->key2);
+			if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
+				if (!test_bit(0, (unsigned long *) &root->parent)) {
+					down_write(&root->rwsem);
+					if (__test_and_set_bit(0, (unsigned long *)&root->parent))
+						BUG();
+				}
+				anon_vma_ldu_physical_update(dnode->op_num, avc,
+						READ_ONCE(dnode->root));
+			}
+		}
+	}
+
+	for_each_possible_cpu(cpu) {
+		llist_for_each_entry(dnode, log_entry[cpu], ll_node) {
+			avc = READ_ONCE(dnode->key);
+			root = READ_ONCE(dnode->key2);
+			if (test_bit(0, (unsigned long *) &root->parent)) {
+				if (!__test_and_clear_bit(0, (unsigned long *)
+						&root->parent))
+					BUG();
+				up_write(&root->rwsem);
+			}
+			clear_bit(dnode->op_num, &avc->dnode.used);
+		}
+	}
+}
 
 static struct llist_node *free_entry[NR_CPUS];
 
@@ -263,8 +317,9 @@ static int free_avc_thread(void *dummy)
 			ll = &per_cpu(pldu_avc_clean, cpu);
 			free_entry[cpu] = llist_del_all(ll);
 		}
+
 		anon_vma_global_lock();
-		synchronize_ldu_anon();
+		synchronize_ldu_anon_with_lock();
 		anon_vma_global_unlock();
 
 		for_each_possible_cpu(cpu) {
@@ -276,9 +331,11 @@ static int free_avc_thread(void *dummy)
 					if (atomic_dec_and_test(&anon->refcount_free) &&
 							RB_EMPTY_ROOT(&anon->rb_root)) {
 						struct anon_vma *root = anon->root;
-						anon_vma_free(anon);
+						kmem_cache_free(anon_vma_cachep, anon);
+						//anon_vma_free(anon);
 						if (root != anon && atomic_dec_and_test(&root->refcount))
-							anon_vma_free(root);
+							kmem_cache_free(anon_vma_cachep, root);
+							//anon_vma_free(root);
 					}
 				} else {
 					ll = this_cpu_ptr(&pldu_avc_clean);
@@ -496,7 +553,7 @@ int anon_vma_fork(struct vm_area_struct *vma, struct vm_area_struct *pvma)
 	 * lock any of the anon_vmas in this anon_vma tree.
 	 */
 	anon_vma->root = pvma->anon_vma->root;
-	anon_vma->parent = pvma->anon_vma;
+	//anon_vma->parent = pvma->anon_vma;
 
 	/*
 	 * With refcounts, an anon_vma can stay around longer than the
@@ -550,6 +607,7 @@ static void anon_vma_ctor(void *data)
 	init_rwsem(&anon_vma->rwsem);
 	atomic_set(&anon_vma->refcount, 0);
 	atomic_set(&anon_vma->refcount_free, 0);
+	anon_vma->parent = 0;
 	anon_vma->rb_root = RB_ROOT;
 }
 
@@ -589,10 +647,6 @@ struct anon_vma *page_get_anon_vma(struct page *page)
 {
 	struct anon_vma *anon_vma = NULL;
 	unsigned long anon_mapping;
-
-	anon_vma_global_lock();
-	synchronize_ldu_anon();
-	anon_vma_global_unlock();
 
 	rcu_read_lock();
 	anon_mapping = (unsigned long)READ_ONCE(page->mapping);
@@ -676,6 +730,7 @@ struct anon_vma *page_lock_anon_vma_read(struct page *page)
 	/* we pinned the anon_vma, its safe to sleep */
 	rcu_read_unlock();
 	anon_vma_lock_write(anon_vma);
+
 
 	if (atomic_dec_and_test(&anon_vma->refcount)) {
 		/*
@@ -1859,14 +1914,12 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 	struct anon_vma_chain *avc;
 	int ret = SWAP_AGAIN;
 
-	anon_vma_global_lock();
 	anon_vma = rmap_walk_anon_lock(page, rwc);
 	if (!anon_vma) {
-		anon_vma_global_unlock();
 		return ret;
 	}
 
-	synchronize_ldu_anon();
+	synchronize_ldu_anon(anon_vma);
 	pgoff = page_to_pgoff(page);
 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff, pgoff) {
 		struct vm_area_struct *vma = avc->vma;
@@ -1883,8 +1936,8 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 		if (rwc->done && rwc->done(page))
 			break;
 	}
-	anon_vma_unlock_write(anon_vma);
 	anon_vma_global_unlock();
+	anon_vma_unlock_write(anon_vma);
 	return ret;
 }
 
@@ -1973,9 +2026,9 @@ static void __hugepage_set_anon_rmap(struct page *page,
 	anon_vma = (void *) anon_vma + PAGE_MAPPING_ANON;
 	page->mapping = (struct address_space *) anon_vma;
 	page->index = linear_page_index(vma, address);
-	anon_vma_global_lock();
-	synchronize_ldu_anon();
-	anon_vma_global_unlock();
+	anon_vma_lock_write(anon_vma);
+	synchronize_ldu_anon(anon_vma);
+	anon_vma_unlock_write(anon_vma);
 }
 
 void hugepage_add_anon_rmap(struct page *page,
