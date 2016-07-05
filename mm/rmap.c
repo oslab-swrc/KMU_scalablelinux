@@ -177,6 +177,7 @@ bool anon_vma_ldu_logical_insert(struct anon_vma_chain *avc, struct anon_vma *an
 	BUG_ON(!anon);
 	BUG_ON(!anon->root);
 	if (atomic_cmpxchg(&del_dnode->mark, 1, 0) != 1) {
+		BUG_ON(atomic_read(&add_dnode->mark));
 		atomic_set(&add_dnode->mark, 1);
 		if (!test_and_set_bit(LDU_OP_ADD, &avc->dnode.used)) {
 			add_dnode->op_num = LDU_OP_ADD;
@@ -198,6 +199,7 @@ bool anon_vma_ldu_logical_remove(struct anon_vma_chain *avc, struct anon_vma *an
 	BUG_ON(!anon);
 	BUG_ON(!anon->root);
 	if (atomic_cmpxchg(&add_dnode->mark, 1, 0) != 1) {
+		BUG_ON(atomic_read(&del_dnode->mark));
 		atomic_set(&del_dnode->mark, 1);
 		if (!test_and_set_bit(LDU_OP_DEL, &avc->dnode.used)) {
 			del_dnode->op_num = LDU_OP_DEL;
@@ -235,6 +237,12 @@ void synchronize_ldu_anon_internal(struct llist_head *head)
 					READ_ONCE(dnode->root));
 		}
 		clear_bit(dnode->op_num, &avc->dnode.used);
+		/* one more check */
+		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
+			anon_vma_ldu_physical_update(dnode->op_num, avc,
+					READ_ONCE(dnode->root));
+			pr_info("ldu synch un normal state\n");
+		}
 	}
 }
 
@@ -244,7 +252,6 @@ void synchronize_ldu_anon(struct anon_vma *anon_vma)
 	struct ldu_node *dnode;
 	struct anon_vma *root = NULL;
 	struct anon_vma_chain *avc;
-	struct llist_node *log_entry_locked[NR_CPUS];
 
 	anon_vma_global_lock();
 	for_each_possible_cpu(cpu) {
@@ -258,50 +265,24 @@ void synchronize_ldu_anon(struct anon_vma *anon_vma)
 EXPORT_SYMBOL_GPL(synchronize_ldu_anon);
 
 
-void synchronize_ldu_anon_with_lock(void)
+void synchronize_ldu_anon_no_lock(struct anon_vma *anon_vma)
 {
+	int cpu;
 	struct ldu_node *dnode;
 	struct anon_vma *root = NULL;
-	int cpu;
 	struct anon_vma_chain *avc;
-	struct llist_node *log_entry[NR_CPUS];
 
 	for_each_possible_cpu(cpu) {
 		struct pldu_deferred *pd;
 		pd = &per_cpu(pldu_anon_vma_deferred, cpu);
-		log_entry[cpu] = llist_del_all(&pd->list);
+		synchronize_ldu_anon_internal(&pd->list);
 	}
 
-	for_each_possible_cpu(cpu) {
-		llist_for_each_entry(dnode, log_entry[cpu], ll_node) {
-			avc = READ_ONCE(dnode->key);
-			root = READ_ONCE(dnode->key2);
-			if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
-				if (!test_bit(0, (unsigned long *) &root->parent)) {
-					down_write(&root->rwsem);
-					if (__test_and_set_bit(0, (unsigned long *)&root->parent))
-						BUG();
-				}
-				anon_vma_ldu_physical_update(dnode->op_num, avc,
-						READ_ONCE(dnode->root));
-			}
-		}
-	}
-
-	for_each_possible_cpu(cpu) {
-		llist_for_each_entry(dnode, log_entry[cpu], ll_node) {
-			avc = READ_ONCE(dnode->key);
-			root = READ_ONCE(dnode->key2);
-			if (test_bit(0, (unsigned long *) &root->parent)) {
-				if (!__test_and_clear_bit(0, (unsigned long *)
-						&root->parent))
-					BUG();
-				up_write(&root->rwsem);
-			}
-			clear_bit(dnode->op_num, &avc->dnode.used);
-		}
-	}
+	return;
 }
+EXPORT_SYMBOL_GPL(synchronize_ldu_anon_no_lock);
+
+
 
 static struct llist_node *free_entry[NR_CPUS];
 
@@ -312,14 +293,13 @@ static int free_avc_thread(void *dummy)
 	struct llist_head *ll;
 
 	while (!kthread_should_stop()) {
-		schedule_timeout_interruptible(HZ);
+		schedule_timeout_interruptible(HZ / 2);
 		for_each_possible_cpu(cpu) {
 			ll = &per_cpu(pldu_avc_clean, cpu);
 			free_entry[cpu] = llist_del_all(ll);
 		}
 
-		anon_vma_global_lock();
-		synchronize_ldu_anon_with_lock();
+		synchronize_ldu_anon(NULL);
 		anon_vma_global_unlock();
 
 		for_each_possible_cpu(cpu) {
@@ -1919,8 +1899,8 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 		return ret;
 	}
 
-	synchronize_ldu_anon(anon_vma);
 	pgoff = page_to_pgoff(page);
+	synchronize_ldu_anon(anon_vma);
 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff, pgoff) {
 		struct vm_area_struct *vma = avc->vma;
 		unsigned long address = vma_address(page, vma);
@@ -2026,9 +2006,8 @@ static void __hugepage_set_anon_rmap(struct page *page,
 	anon_vma = (void *) anon_vma + PAGE_MAPPING_ANON;
 	page->mapping = (struct address_space *) anon_vma;
 	page->index = linear_page_index(vma, address);
-	anon_vma_lock_write(anon_vma);
-	synchronize_ldu_anon(anon_vma);
-	anon_vma_unlock_write(anon_vma);
+
+
 }
 
 void hugepage_add_anon_rmap(struct page *page,
@@ -2041,8 +2020,10 @@ void hugepage_add_anon_rmap(struct page *page,
 	BUG_ON(!anon_vma);
 	/* address might be in next vma when migration races vma_adjust */
 	first = atomic_inc_and_test(compound_mapcount_ptr(page));
-	if (first)
+	if (first) {
+		synchronize_ldu_anon_no_lock(NULL);
 		__hugepage_set_anon_rmap(page, vma, address, 0);
+	}
 }
 
 void hugepage_add_new_anon_rmap(struct page *page,

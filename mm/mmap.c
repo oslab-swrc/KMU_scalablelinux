@@ -147,6 +147,7 @@ bool i_mmap_ldu_logical_insert(struct vm_area_struct *vma,
 	struct ldu_node *del_dnode = &vma->dnode.node[1];
 
 	if (atomic_cmpxchg(&del_dnode->mark, 1, 0) != 1) {
+		BUG_ON(atomic_read(&add_dnode->mark));
 		atomic_set(&add_dnode->mark, 1);
 		if (!test_and_set_bit(LDU_OP_ADD, &vma->dnode.used)) {
 			add_dnode->op_num = LDU_OP_ADD;
@@ -167,6 +168,7 @@ bool i_mmap_ldu_logical_remove(struct vm_area_struct *vma,
 	struct ldu_node *del_dnode = &vma->dnode.node[1];
 
 	if (atomic_cmpxchg(&add_dnode->mark, 1, 0) != 1) {
+		BUG_ON(atomic_read(&del_dnode->mark));
 		atomic_set(&del_dnode->mark, 1);
 		if (!test_and_set_bit(LDU_OP_DEL, &vma->dnode.used)) {
 			del_dnode->op_num = LDU_OP_DEL;
@@ -206,6 +208,11 @@ void synchronize_ldu_i_mmap_internal(struct llist_node *entry)
 
 		}
 		clear_bit(dnode->op_num, &vma->dnode.used);
+		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
+			i_mmap_ldu_physical_update(dnode->op_num, vma,
+					READ_ONCE(dnode->root));
+			pr_info("ldu synch un normal state : immap\n");
+		}
 	}
 }
 
@@ -332,7 +339,7 @@ static int free_vma_thread(void *dummy)
 	struct ldu_node *ldu;
 
 	while (!kthread_should_stop()) {
-		schedule_timeout_interruptible(HZ);
+		schedule_timeout_interruptible(HZ / 2);
 
 		for_each_possible_cpu(cpu) {
 			ll = &per_cpu(pldu_vma_clean, cpu);
@@ -2463,7 +2470,6 @@ int expand_upwards(struct vm_area_struct *vma, unsigned long address)
 	 * anon_vma lock to serialize against concurrent expand_stacks.
 	 */
 	anon_vma_lock_write(vma->anon_vma);
-	synchronize_ldu_anon(vma->anon_vma);
 
 	/* Somebody else might have raced and expanded it already */
 	if (address > vma->vm_end) {
@@ -3564,7 +3570,7 @@ int mm_take_all_locks(struct mm_struct *mm)
 			list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
 				vm_lock_anon_vma(mm, avc->anon_vma);
 	}
-
+	anon_vma_global_lock();
 	return 0;
 
 out_unlock:
@@ -3620,6 +3626,7 @@ void mm_drop_all_locks(struct mm_struct *mm)
 	BUG_ON(down_read_trylock(&mm->mmap_sem));
 	BUG_ON(!mutex_is_locked(&mm_all_locks_mutex));
 
+	anon_vma_global_unlock();
 	for (vma = mm->mmap; vma; vma = vma->vm_next) {
 		if (vma->anon_vma)
 			list_for_each_entry(avc, &vma->anon_vma_chain, same_vma)
