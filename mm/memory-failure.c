@@ -413,7 +413,7 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 	av = page_lock_anon_vma_read(page);
 	if (av == NULL)	/* Not actually mapped anymore */
 		return;
-	//synchronize_ldu_anon(av);
+	synchronize_ldu_anon(av);
 
 	pgoff = page_to_pgoff(page);
 	read_lock(&tasklist_lock);
@@ -433,7 +433,7 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 		}
 	}
 	read_unlock(&tasklist_lock);
-	//anon_vma_global_unlock();
+	anon_vma_global_unlock();
 	page_unlock_anon_vma_read(av);
 }
 
