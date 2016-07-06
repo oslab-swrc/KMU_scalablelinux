@@ -1141,7 +1141,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 	if (anon_vma) {
 		VM_BUG_ON_VMA(adjust_next && next->anon_vma &&
 			  anon_vma != next->anon_vma, next);
-		anon_vma_lock_write(anon_vma);
+		//anon_vma_lock_write(anon_vma);
 #if 1
 		anon_vma_interval_tree_pre_update_vma(vma);
 		if (adjust_next)
@@ -1195,7 +1195,7 @@ again:			remove_next = 1 + (end > next->vm_end);
 		if (adjust_next)
 			anon_vma_interval_tree_post_update_vma(next);
 #endif
-		anon_vma_unlock_write(anon_vma);
+		//anon_vma_unlock_write(anon_vma);
 	}
 
 	if (root) {
@@ -2540,7 +2540,9 @@ int expand_downwards(struct vm_area_struct *vma,
 	 * is required to hold the mmap_sem in read mode.  We need the
 	 * anon_vma lock to serialize against concurrent expand_stacks.
 	 */
-	anon_vma_lock_write(vma->anon_vma);
+	//anon_vma_lock_write(vma->anon_vma);
+	//anon_vma_global_lock();
+	spin_lock(&mm->page_table_lock);
 
 
 	/* Somebody else might have raced and expanded it already */
@@ -2565,7 +2567,6 @@ int expand_downwards(struct vm_area_struct *vma,
 				 * So, we reuse mm->page_table_lock to guard
 				 * against concurrent vma expansions.
 				 */
-				spin_lock(&mm->page_table_lock);
 				if (vma->vm_flags & VM_LOCKED)
 					mm->locked_vm += grow;
 				vm_stat_account(mm, vma->vm_flags, grow);
@@ -2574,13 +2575,14 @@ int expand_downwards(struct vm_area_struct *vma,
 				vma->vm_pgoff -= grow;
 				anon_vma_interval_tree_post_update_vma(vma);
 				vma_gap_update(vma);
-				spin_unlock(&mm->page_table_lock);
 
 				perf_event_mmap(vma);
 			}
 		}
 	}
-	anon_vma_unlock_write(vma->anon_vma);
+	//anon_vma_global_unlock();
+	//anon_vma_unlock_write(vma->anon_vma);
+	spin_unlock(&mm->page_table_lock);
 	khugepaged_enter_vma_merge(vma, vma->vm_flags);
 	validate_mm(mm);
 	return error;

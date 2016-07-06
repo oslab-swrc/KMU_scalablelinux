@@ -137,12 +137,14 @@ static inline struct anon_vma_chain *anon_vma_chain_alloc(gfp_t gfp)
 
 void anon_vma_global_lock(void)
 {
+//	pr_info("anon global_lock\n");
 	mutex_lock(&anon_vma_mutex);
 }
 
 void anon_vma_global_unlock(void)
 {
 	mutex_unlock(&anon_vma_mutex);
+//	pr_info("anon global_unlock\n");
 }
 
 static void anon_vma_chain_free(struct anon_vma_chain *anon_vma_chain)
@@ -174,8 +176,9 @@ bool anon_vma_ldu_logical_insert(struct anon_vma_chain *avc, struct anon_vma *an
 	struct ldu_node *add_dnode = &avc->dnode.node[0];
 	struct ldu_node *del_dnode = &avc->dnode.node[1];
 
-	BUG_ON(!anon);
-	BUG_ON(!anon->root);
+	if (!anon && !anon->root)
+		return false;
+
 	if (atomic_cmpxchg(&del_dnode->mark, 1, 0) != 1) {
 		BUG_ON(atomic_read(&add_dnode->mark));
 		atomic_set(&add_dnode->mark, 1);
@@ -196,8 +199,9 @@ bool anon_vma_ldu_logical_remove(struct anon_vma_chain *avc, struct anon_vma *an
 	struct ldu_node *add_dnode = &avc->dnode.node[0];
 	struct ldu_node *del_dnode = &avc->dnode.node[1];
 
-	BUG_ON(!anon);
-	BUG_ON(!anon->root);
+	if (!anon && !anon->root)
+		return false;
+
 	if (atomic_cmpxchg(&add_dnode->mark, 1, 0) != 1) {
 		BUG_ON(atomic_read(&del_dnode->mark));
 		atomic_set(&del_dnode->mark, 1);
@@ -389,7 +393,7 @@ int anon_vma_prepare(struct vm_area_struct *vma)
 			allocated = anon_vma;
 		}
 
-		anon_vma_lock_write(anon_vma);
+		//anon_vma_lock_write(anon_vma);
 		/* page_table_lock to protect against threads */
 		spin_lock(&mm->page_table_lock);
 		if (likely(!vma->anon_vma)) {
@@ -400,7 +404,7 @@ int anon_vma_prepare(struct vm_area_struct *vma)
 			avc = NULL;
 		}
 		spin_unlock(&mm->page_table_lock);
-		anon_vma_unlock_write(anon_vma);
+		//anon_vma_unlock_write(anon_vma);
 
 		if (unlikely(allocated))
 			put_anon_vma(allocated);

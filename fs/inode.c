@@ -292,7 +292,7 @@ static void destroy_inode(struct inode *inode)
 
 		llist_add(&inode->llist, &p->list);
 		mod_delayed_work(inode_wq, &p->wq,
-				round_jiffies_relative(HZ));
+				round_jiffies_relative(HZ * 10));
 	} else {
 		__destroy_inode(inode);
 		if (inode->i_sb->s_op->destroy_inode)
