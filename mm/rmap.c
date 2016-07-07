@@ -315,11 +315,11 @@ static int free_avc_thread(void *dummy)
 					if (atomic_dec_and_test(&anon->refcount_free) &&
 							RB_EMPTY_ROOT(&anon->rb_root)) {
 						struct anon_vma *root = anon->root;
-						kmem_cache_free(anon_vma_cachep, anon);
-						//anon_vma_free(anon);
+						//kmem_cache_free(anon_vma_cachep, anon);
+						anon_vma_free(anon);
 						if (root != anon && atomic_dec_and_test(&root->refcount))
-							kmem_cache_free(anon_vma_cachep, root);
-							//anon_vma_free(root);
+							anon_vma_free(root);
+							//kmem_cache_free(anon_vma_cachep, root);
 					}
 				} else {
 					ll = this_cpu_ptr(&pldu_avc_clean);

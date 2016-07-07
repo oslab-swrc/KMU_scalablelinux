@@ -97,7 +97,6 @@ static DEFINE_PER_CPU(struct i_mmap_slot, i_mmap_slot);
 static DEFINE_PER_CPU(struct llist_head, pldu_vma_clean);
 
 
-void synchronize_ldu_i_mmap_internal_lock(struct llist_node *entry);
 void synchronize_ldu_i_mmap_internal(struct llist_node *entry);
 void synchronize_ldu_i_mmap(struct address_space *mapping);
 
@@ -216,40 +215,6 @@ void synchronize_ldu_i_mmap_internal(struct llist_node *entry)
 	}
 }
 
-void synchronize_ldu_i_mmap_internal_lock(struct llist_node *entry)
-{
-	struct ldu_node *dnode;
-	int locked = 0;
-	struct vm_area_struct *vma;
-	struct file *file;
-	struct address_space *mapping;
-	struct address_space *locked_mapping = NULL;
-
-	llist_for_each_entry(dnode, entry, ll_node) {
-		vma = READ_ONCE(dnode->key);
-
-		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
-			if (!locked) {
-				locked_mapping = READ_ONCE(dnode->key2);
-				if (locked_mapping) {
-					//pr_info("locked address %lx\n", (long) mapping);
-					down_write(&locked_mapping->i_mmap_rwsem);
-					locked = 1;
-				}
-			}
-
-			i_mmap_ldu_physical_update(dnode->op_num, vma,
-						READ_ONCE(dnode->root));
-		}
-		clear_bit(dnode->op_num, &vma->dnode.used);
-	}
-
-	if (locked) {
-		//pr_info("unlocked\n");
-		up_write(&locked_mapping->i_mmap_rwsem);
-	}
-}
-
 void synchronize_ldu_i_mmap(struct address_space *mapping)
 {
 	int cpu;
@@ -309,7 +274,7 @@ void clean_percore_mapping(struct address_space *mapping)
 		first = READ_ONCE(p->list.first);
 		if (first) {
 			ldu = llist_entry(first, struct ldu_node, ll_node);
-			if (ldu->root != &mapping->i_mmap)
+			if (ldu && ldu->root != &mapping->i_mmap)
 				continue;
 		} else
 			continue;
@@ -2538,12 +2503,10 @@ int expand_downwards(struct vm_area_struct *vma,
 	/*
 	 * vma->vm_start/vm_end cannot change under us because the caller
 	 * is required to hold the mmap_sem in read mode.  We need the
-	 * anon_vma lock to serialize against concurrent expand_stacks.
+	 * page_table_lock lock to serialize against concurrent expand_stacks.
 	 */
 	//anon_vma_lock_write(vma->anon_vma);
-	//anon_vma_global_lock();
 	spin_lock(&mm->page_table_lock);
-
 
 	/* Somebody else might have raced and expanded it already */
 	if (address < vma->vm_start) {
@@ -2556,17 +2519,6 @@ int expand_downwards(struct vm_area_struct *vma,
 		if (grow <= vma->vm_pgoff) {
 			error = acct_stack_growth(vma, size, grow);
 			if (!error) {
-				/*
-				 * vma_gap_update() doesn't support concurrent
-				 * updates, but we only hold a shared mmap_sem
-				 * lock here, so we need to protect against
-				 * concurrent vma expansions.
-				 * anon_vma_lock_write() doesn't help here, as
-				 * we don't guarantee that all growable vmas
-				 * in a mm share the same root anon vma.
-				 * So, we reuse mm->page_table_lock to guard
-				 * against concurrent vma expansions.
-				 */
 				if (vma->vm_flags & VM_LOCKED)
 					mm->locked_vm += grow;
 				vm_stat_account(mm, vma->vm_flags, grow);
@@ -2580,9 +2532,8 @@ int expand_downwards(struct vm_area_struct *vma,
 			}
 		}
 	}
-	//anon_vma_global_unlock();
-	//anon_vma_unlock_write(vma->anon_vma);
 	spin_unlock(&mm->page_table_lock);
+	//anon_vma_unlock_write(vma->anon_vma);
 	khugepaged_enter_vma_merge(vma, vma->vm_flags);
 	validate_mm(mm);
 	return error;
