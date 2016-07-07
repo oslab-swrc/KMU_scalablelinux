@@ -297,7 +297,7 @@ static int free_avc_thread(void *dummy)
 	struct llist_head *ll;
 
 	while (!kthread_should_stop()) {
-		schedule_timeout_interruptible(HZ / 2);
+		schedule_timeout_interruptible(HZ);
 		for_each_possible_cpu(cpu) {
 			ll = &per_cpu(pldu_avc_clean, cpu);
 			free_entry[cpu] = llist_del_all(ll);
@@ -315,11 +315,11 @@ static int free_avc_thread(void *dummy)
 					if (atomic_dec_and_test(&anon->refcount_free) &&
 							RB_EMPTY_ROOT(&anon->rb_root)) {
 						struct anon_vma *root = anon->root;
-						//kmem_cache_free(anon_vma_cachep, anon);
-						anon_vma_free(anon);
+						kmem_cache_free(anon_vma_cachep, anon);
+						//anon_vma_free(anon);
 						if (root != anon && atomic_dec_and_test(&root->refcount))
-							anon_vma_free(root);
-							//kmem_cache_free(anon_vma_cachep, root);
+							//anon_vma_free(root);
+							kmem_cache_free(anon_vma_cachep, root);
 					}
 				} else {
 					ll = this_cpu_ptr(&pldu_avc_clean);

@@ -282,10 +282,10 @@ void clean_percore_mapping(struct address_space *mapping)
 		if (!entry)
 			continue;
 
-		llist_for_each_entry(dnode, entry, ll_node) {
-			struct vm_area_struct *vma = READ_ONCE(dnode->key);
-			clear_bit(dnode->op_num, &vma->dnode.used);
-		}
+		//llist_for_each_entry(dnode, entry, ll_node) {
+		//	struct vm_area_struct *vma = READ_ONCE(dnode->key);
+		//	clear_bit(dnode->op_num, &vma->dnode.used);
+		//}
 	}
 }
 
@@ -304,7 +304,7 @@ static int free_vma_thread(void *dummy)
 	struct ldu_node *ldu;
 
 	while (!kthread_should_stop()) {
-		schedule_timeout_interruptible(HZ / 2);
+		schedule_timeout_interruptible(HZ);
 
 		for_each_possible_cpu(cpu) {
 			ll = &per_cpu(pldu_vma_clean, cpu);
