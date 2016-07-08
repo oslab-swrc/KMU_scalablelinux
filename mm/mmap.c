@@ -282,10 +282,7 @@ void clean_percore_mapping(struct address_space *mapping)
 		if (!entry)
 			continue;
 
-		//llist_for_each_entry(dnode, entry, ll_node) {
-		//	struct vm_area_struct *vma = READ_ONCE(dnode->key);
-		//	clear_bit(dnode->op_num, &vma->dnode.used);
-		//}
+		synchronize_ldu_i_mmap_internal(entry);
 	}
 }
 

@@ -255,54 +255,25 @@ static void i_callback(struct rcu_head *head)
 
 extern void clean_percore_mapping(struct address_space *mapping);
 
-
-struct ifree_deferred {
-	struct llist_head list;
-	struct delayed_work wq;
-};
-static DEFINE_PER_CPU(struct ifree_deferred, ifree_deferred);
-static struct workqueue_struct *inode_wq;
-
-static void free_work(struct work_struct *w)
-{
-	struct ifree_deferred *p = container_of(w, struct ifree_deferred, wq.work);
-	struct llist_node *entry = llist_del_all(&p->list);
-	struct inode *inode, *next;
-
-	if (!entry)
-		return;
-
-	llist_for_each_entry_safe(inode, next, entry, llist) {
-		if (!inode || !inode->i_sb || !inode->i_sb->s_op)
-			continue;
-		call_rcu(&inode->i_rcu, i_callback);
-	}
-}
-
 static void destroy_inode(struct inode *inode)
 {
 	BUG_ON(!list_empty(&inode->i_lru));
 	if (inode->i_mapping) {
-		struct ifree_deferred *p = this_cpu_ptr(&ifree_deferred);
 		clean_percore_mapping(inode->i_mapping);
+		__destroy_inode(inode);
 		might_sleep();
 		if (rwsem_is_locked(&inode->i_mapping->i_mmap_rwsem)) {
 			down_write(&inode->i_mapping->i_mmap_rwsem);
 			up_write(&inode->i_mapping->i_mmap_rwsem);
 		}
-		__destroy_inode(inode);
-		if (inode->i_sb->s_op->destroy_inode) {
-			inode->i_sb->s_op->destroy_inode(inode);
-		} else {
-			call_rcu(&inode->i_rcu, i_callback);
-		}
 	} else {
 		__destroy_inode(inode);
-		if (inode->i_sb->s_op->destroy_inode)
-			inode->i_sb->s_op->destroy_inode(inode);
-		else
-			call_rcu(&inode->i_rcu, i_callback);
 	}
+
+	if (inode->i_sb->s_op->destroy_inode)
+		inode->i_sb->s_op->destroy_inode(inode);
+	else
+		call_rcu(&inode->i_rcu, i_callback);
 }
 
 /**
@@ -2088,21 +2059,3 @@ void inode_nohighmem(struct inode *inode)
 	mapping_set_gfp_mask(inode->i_mapping, GFP_USER);
 }
 EXPORT_SYMBOL(inode_nohighmem);
-
-
-static int __init inode_init_wq(void)
-{
-	int i;
-	inode_wq = create_singlethread_workqueue("inode_workq");
-	WARN(!inode_wq, "failed to create i_mmap workqueue\n");
-
-	for_each_possible_cpu(i) {
-		struct ifree_deferred *p;
-		p = &per_cpu(ifree_deferred, i);
-		init_llist_head(&p->list);
-		INIT_DELAYED_WORK(&p->wq, free_work);
-	}
-
-	return 0;
-}
-__initcall(inode_init_wq);
