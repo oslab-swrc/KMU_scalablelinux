@@ -1902,6 +1902,7 @@ again:
 		cond_resched();
 		anon_vma_lock_write(anon_vma);
 		synchronize_ldu_anon(anon_vma);
+		synchronize_ldu_anon(anon_vma->root);
 		anon_vma_interval_tree_foreach(vmac, &anon_vma->rb_root,
 					       0, ULONG_MAX) {
 			cond_resched();

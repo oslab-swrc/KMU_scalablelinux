@@ -123,6 +123,7 @@ static void move_ptes(struct vm_area_struct *vma, pmd_t *old_pmd,
 		if (vma->anon_vma) {
 			anon_vma = vma->anon_vma;
 			anon_vma_lock_write(anon_vma);
+			synchronize_ldu_anon(anon_vma->root);
 		}
 	}
 
@@ -197,8 +198,10 @@ unsigned long move_page_tables(struct vm_area_struct *vma,
 				VM_BUG_ON_VMA(vma->vm_file || !vma->anon_vma,
 					      vma);
 				/* See comment in move_ptes() */
-				if (need_rmap_locks)
+				if (need_rmap_locks) {
 					anon_vma_lock_write(vma->anon_vma);
+					synchronize_ldu_anon(vma->anon_vma->root);
+				}
 				moved = move_huge_pmd(vma, new_vma, old_addr,
 						    new_addr, old_end,
 						    old_pmd, new_pmd);

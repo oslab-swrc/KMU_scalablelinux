@@ -156,6 +156,10 @@ void synchronize_ldu_i_mmap(struct address_space *mapping)
 					ACCESS_ONCE(dnode->root));
 		}
 		clear_bit(dnode->op_num, &vma->dnode.used);
+		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
+			i_mmap_ldu_physical_update(dnode->op_num, vma,
+					ACCESS_ONCE(dnode->root));
+		}
 	}
 }
 EXPORT_SYMBOL_GPL(synchronize_ldu_i_mmap);

@@ -222,6 +222,10 @@ void synchronize_ldu_anon(struct anon_vma *anon)
 					READ_ONCE(dnode->root));
 		}
 		clear_bit(dnode->op_num, &avc->dnode.used);
+		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
+			anon_vma_ldu_physical_update(dnode->op_num, avc,
+					READ_ONCE(dnode->root));
+		}
 	}
 }
 EXPORT_SYMBOL_GPL(synchronize_ldu_anon);
@@ -343,7 +347,7 @@ int anon_vma_prepare(struct vm_area_struct *vma)
 			allocated = anon_vma;
 		}
 
-		//anon_vma_lock_write(anon_vma);
+		anon_vma_lock_write(anon_vma);
 		/* page_table_lock to protect against threads */
 		spin_lock(&mm->page_table_lock);
 		if (likely(!vma->anon_vma)) {
@@ -354,7 +358,7 @@ int anon_vma_prepare(struct vm_area_struct *vma)
 			avc = NULL;
 		}
 		spin_unlock(&mm->page_table_lock);
-		//anon_vma_unlock_write(anon_vma);
+		anon_vma_unlock_write(anon_vma);
 
 		if (unlikely(allocated))
 			put_anon_vma(allocated);
@@ -636,6 +640,7 @@ struct anon_vma *page_lock_anon_vma_read(struct page *page)
 	anon_vma = (struct anon_vma *) (anon_mapping - PAGE_MAPPING_ANON);
 	root_anon_vma = READ_ONCE(anon_vma->root);
 	if (down_write_trylock(&root_anon_vma->rwsem)) {
+		synchronize_ldu_anon(anon_vma->root);
 		/*
 		 * If the page is still mapped, then this anon_vma is still
 		 * its anon_vma, and holding the mutex ensures that it will
@@ -663,6 +668,7 @@ struct anon_vma *page_lock_anon_vma_read(struct page *page)
 	/* we pinned the anon_vma, its safe to sleep */
 	rcu_read_unlock();
 	anon_vma_lock_write(anon_vma);
+	synchronize_ldu_anon(anon_vma->root);
 
 	if (atomic_dec_and_test(&anon_vma->refcount)) {
 		/*
@@ -1270,6 +1276,8 @@ static void __page_set_anon_rmap(struct page *page,
 	anon_vma = (void *) anon_vma + PAGE_MAPPING_ANON;
 	page->mapping = (struct address_space *) anon_vma;
 	page->index = linear_page_index(vma, address);
+
+
 }
 
 /**
@@ -1829,6 +1837,7 @@ static struct anon_vma *rmap_walk_anon_lock(struct page *page,
 
 	anon_vma_lock_write(anon_vma);
 	synchronize_ldu_anon(anon_vma);
+	synchronize_ldu_anon(anon_vma->root);
 	return anon_vma;
 }
 
@@ -1859,6 +1868,7 @@ static int rmap_walk_anon(struct page *page, struct rmap_walk_control *rwc)
 
 	pgoff = page_to_pgoff(page);
 	synchronize_ldu_anon(anon_vma);
+	synchronize_ldu_anon(anon_vma->root);
 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff, pgoff) {
 		struct vm_area_struct *vma = avc->vma;
 		unsigned long address = vma_address(page, vma);
@@ -1909,9 +1919,9 @@ static int rmap_walk_file(struct page *page, struct rmap_walk_control *rwc)
 	if (!mapping)
 		return ret;
 
-	pgoff = page_to_pgoff(page);
 	i_mmap_lock_write(mapping);
 	synchronize_ldu_i_mmap(mapping);
+	pgoff = page_to_pgoff(page);
 	vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff, pgoff) {
 		unsigned long address = vma_address(page, vma);
 
@@ -1975,8 +1985,10 @@ void hugepage_add_anon_rmap(struct page *page,
 	BUG_ON(!anon_vma);
 	/* address might be in next vma when migration races vma_adjust */
 	first = atomic_inc_and_test(compound_mapcount_ptr(page));
-	if (first)
+	if (first) {
+		synchronize_ldu_anon(anon_vma);
 		__hugepage_set_anon_rmap(page, vma, address, 0);
+	}
 }
 
 void hugepage_add_new_anon_rmap(struct page *page,
