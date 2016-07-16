@@ -1288,7 +1288,7 @@ static void unmap_single_vma(struct mmu_gather *tlb,
 			 */
 			if (vma->vm_file) {
 				i_mmap_lock_write(vma->vm_file->f_mapping);
-				synchronize_ldu_i_mmap(vma->vm_file->f_mapping);
+				//synchronize_ldu_i_mmap(vma->vm_file->f_mapping);
 				__unmap_hugepage_range_final(tlb, vma, start, end, NULL);
 				i_mmap_unlock_write(vma->vm_file->f_mapping);
 			}
@@ -1322,8 +1322,9 @@ void unmap_vmas(struct mmu_gather *tlb,
 	struct mm_struct *mm = vma->vm_mm;
 
 	mmu_notifier_invalidate_range_start(mm, start_addr, end_addr);
-	for ( ; vma && vma->vm_start < end_addr; vma = vma->vm_next)
+	for ( ; vma && vma->vm_start < end_addr; vma = vma->vm_next) {
 		unmap_single_vma(tlb, vma, start_addr, end_addr, NULL);
+	}
 	mmu_notifier_invalidate_range_end(mm, start_addr, end_addr);
 }
 

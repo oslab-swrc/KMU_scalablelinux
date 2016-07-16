@@ -1687,6 +1687,8 @@ int migrate_misplaced_page(struct page *page, struct vm_area_struct *vma,
 	int nr_remaining;
 	LIST_HEAD(migratepages);
 
+	if (PageAnon(page))
+		goto out;
 	/*
 	 * Don't migrate file pages that are mapped in multiple processes
 	 * with execute permissions as they are probably shared libraries.
@@ -1706,8 +1708,6 @@ int migrate_misplaced_page(struct page *page, struct vm_area_struct *vma,
 	isolated = numamigrate_isolate_page(pgdat, page);
 	if (!isolated)
 		goto out;
-
-	goto out;
 
 	list_add(&page->lru, &migratepages);
 	nr_remaining = migrate_pages(&migratepages, alloc_misplaced_dst_page,

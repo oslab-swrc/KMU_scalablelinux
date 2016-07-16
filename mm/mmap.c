@@ -185,10 +185,10 @@ void i_mmap_free_work_func(struct work_struct *work)
 	struct vm_area_struct *vnode, *vnext;
 
 	i_mmap_lock_write(mapping);
-	entry = llist_del_all(&mapping->llclean);
 	synchronize_ldu_i_mmap(mapping);
 	i_mmap_unlock_write(mapping);
 
+	entry = llist_del_all(&mapping->llclean);
 	llist_for_each_entry_safe(vnode, vnext, entry, llist) {
 		if (!vnode->dnode.used)
 			kmem_cache_free(vm_area_cachep, vnode);
@@ -970,6 +970,15 @@ again:			remove_next = 1 + (end > next->vm_end);
 #endif
 	}
 
+	if (root) {
+		flush_dcache_mmap_lock(mapping);
+		i_mmap_ldu_logical_remove(vma, mapping);
+		//vma_interval_tree_remove(vma, root);
+		if (adjust_next)
+			i_mmap_ldu_logical_remove(next, mapping);
+			//vma_interval_tree_remove(next, root);
+	}
+
 	if (start != vma->vm_start) {
 		vma->vm_start = start;
 		start_changed = true;
@@ -982,6 +991,15 @@ again:			remove_next = 1 + (end > next->vm_end);
 	if (adjust_next) {
 		next->vm_start += adjust_next << PAGE_SHIFT;
 		next->vm_pgoff += adjust_next;
+	}
+
+	if (root) {
+		if (adjust_next)
+			i_mmap_ldu_logical_insert(next, mapping);
+			//vma_interval_tree_insert(next, root);
+		i_mmap_ldu_logical_insert(vma, mapping);
+		//vma_interval_tree_insert(vma, root);
+		flush_dcache_mmap_unlock(mapping);
 	}
 
 	if (remove_next) {
@@ -2291,7 +2309,7 @@ int expand_upwards(struct vm_area_struct *vma, unsigned long address)
 	 * anon_vma lock to serialize against concurrent expand_stacks.
 	 */
 	anon_vma_lock_write(vma->anon_vma);
-	synchronize_ldu_anon(vma->anon_vma);
+	//spin_lock(&mm->page_table_lock);
 
 	/* Somebody else might have raced and expanded it already */
 	if (address > vma->vm_end) {
@@ -2333,6 +2351,7 @@ int expand_upwards(struct vm_area_struct *vma, unsigned long address)
 		}
 	}
 	anon_vma_unlock_write(vma->anon_vma);
+	//spin_unlock(&mm->page_table_lock);
 	khugepaged_enter_vma_merge(vma, vma->vm_flags);
 	validate_mm(mm);
 	return error;

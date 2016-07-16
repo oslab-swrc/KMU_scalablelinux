@@ -1496,7 +1496,6 @@ int do_huge_pmd_numa_page(struct mm_struct *mm, struct vm_area_struct *vma,
 	get_page(page);
 	spin_unlock(ptl);
 	anon_vma = page_lock_anon_vma_read(page);
-	synchronize_ldu_anon(anon_vma->root);
 
 	/* Confirm the PMD did not change while page_table_lock was released */
 	spin_lock(ptl);
@@ -2384,7 +2383,6 @@ static void collapse_huge_page(struct mm_struct *mm,
 	}
 
 	anon_vma_lock_write(vma->anon_vma);
-	synchronize_ldu_anon(vma->anon_vma->root);
 
 	pte = pte_offset_map(pmd, address);
 	pte_ptl = pte_lockptr(mm, pmd);
@@ -3127,10 +3125,7 @@ static void freeze_page(struct anon_vma *anon_vma, struct page *page)
 	struct anon_vma_chain *avc;
 	pgoff_t pgoff = page_to_pgoff(page);
 
-	VM_BUG_ON_PAGE(!PageHead(page), page);
-
-	synchronize_ldu_anon(anon_vma);
-	synchronize_ldu_anon(anon_vma->root);
+	VM_BUG_ON_PAGE(!PageHead(page), page)
 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff,
 			pgoff + HPAGE_PMD_NR - 1) {
 		unsigned long address = __vma_address(page, avc->vma);
@@ -3212,8 +3207,6 @@ static void unfreeze_page(struct anon_vma *anon_vma, struct page *page)
 	struct anon_vma_chain *avc;
 	pgoff_t pgoff = page_to_pgoff(page);
 
-	synchronize_ldu_anon(anon_vma);
-	synchronize_ldu_anon(anon_vma->root);
 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root,
 			pgoff, pgoff + HPAGE_PMD_NR - 1) {
 		unsigned long address = __vma_address(page, avc->vma);

@@ -422,8 +422,6 @@ static void collect_procs_anon(struct page *page, struct list_head *to_kill,
 
 		if (!t)
 			continue;
-		synchronize_ldu_anon(av);
-		synchronize_ldu_anon(av->root);
 		anon_vma_interval_tree_foreach(vmac, &av->rb_root,
 					       pgoff, pgoff) {
 			vma = vmac->vma;
@@ -449,13 +447,13 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 
 	i_mmap_lock_write(mapping);
 	read_lock(&tasklist_lock);
+	synchronize_ldu_i_mmap(mapping);
 	for_each_process(tsk) {
 		pgoff_t pgoff = page_to_pgoff(page);
 		struct task_struct *t = task_early_kill(tsk, force_early);
 
 		if (!t)
 			continue;
-		synchronize_ldu_i_mmap(mapping);
 		vma_interval_tree_foreach(vma, &mapping->i_mmap, pgoff,
 				      pgoff) {
 			/*
