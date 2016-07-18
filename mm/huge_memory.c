@@ -3125,7 +3125,7 @@ static void freeze_page(struct anon_vma *anon_vma, struct page *page)
 	struct anon_vma_chain *avc;
 	pgoff_t pgoff = page_to_pgoff(page);
 
-	VM_BUG_ON_PAGE(!PageHead(page), page)
+	VM_BUG_ON_PAGE(!PageHead(page), page);
 	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff,
 			pgoff + HPAGE_PMD_NR - 1) {
 		unsigned long address = __vma_address(page, avc->vma);
