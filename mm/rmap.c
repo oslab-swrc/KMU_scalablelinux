@@ -163,8 +163,10 @@ bool anon_vma_ldu_logical_insert(struct anon_vma_chain *avc, struct anon_vma *an
 
 	BUG_ON(!anon);
 	BUG_ON(!anon->root);
-	if (atomic_cmpxchg(&del_dnode->mark, 1, 0) != 1) {
-		atomic_set(&add_dnode->mark, 1);
+	/* First optimiation point - update-side absorbing */
+	if (!xchg(&del_dnode->mark, 0)) {
+		BUG_ON(add_dnode->mark);
+		WRITE_ONCE(add_dnode->mark, 1);
 		if (!test_and_set_bit(LDU_OP_ADD, &avc->dnode.used)) {
 			add_dnode->op_num = LDU_OP_ADD;
 			add_dnode->key = avc;
@@ -183,8 +185,8 @@ bool anon_vma_ldu_logical_remove(struct anon_vma_chain *avc, struct anon_vma *an
 
 	BUG_ON(!anon);
 	BUG_ON(!anon->root);
-	if (atomic_cmpxchg(&add_dnode->mark, 1, 0) != 1) {
-		atomic_set(&del_dnode->mark, 1);
+	if (!xchg(&add_dnode->mark, 0)) {
+		WRITE_ONCE(del_dnode->mark, 1);
 		if (!test_and_set_bit(LDU_OP_DEL, &avc->dnode.used)) {
 			del_dnode->op_num = LDU_OP_DEL;
 			del_dnode->key = avc;
@@ -218,12 +220,17 @@ void synchronize_ldu_anon(struct anon_vma *anon)
 	//entry = llist_reverse_order(entry);
 	llist_for_each_entry_safe(dnode, next, entry, ll_node) {
 		struct anon_vma_chain *avc = READ_ONCE(dnode->key);
-		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
+		/*
+		 * This may content with ldu logical update, so this position needs to
+		 * atomic swap operation.
+		 */
+		if (xchg(&dnode->mark, 0)) {
+			/* This time always locks by their object's lock */
 			anon_vma_ldu_physical_update(dnode->op_num, avc,
 					READ_ONCE(dnode->root));
 		}
 		clear_bit(dnode->op_num, &avc->dnode.used);
-		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
+		if (xchg(&dnode->mark, 0)) {
 			anon_vma_ldu_physical_update(dnode->op_num, avc,
 					READ_ONCE(dnode->root));
 		}
@@ -499,8 +506,6 @@ int anon_vma_fork(struct vm_area_struct *vma, struct vm_area_struct *pvma)
 	 * this anon_vma is freed, because the lock lives in the root.
 	 */
 	get_anon_vma(anon_vma->root);
-	//pr_info("get_anon_vma\n");
-	//pr_info("anon_vma root ref count %d\n", atomic_read(&anon_vma->root->refcount));
 
 	/* Mark this anon_vma as the one where our new (COWed) pages go. */
 	vma->anon_vma = anon_vma;
