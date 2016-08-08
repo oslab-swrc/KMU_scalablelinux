@@ -28,6 +28,7 @@
 #include <linux/debugfs.h>
 #include <linux/migrate.h>
 #include <linux/hashtable.h>
+#include <linux/lockfree_list.h>
 #include <linux/userfaultfd_k.h>
 #include <linux/page_idle.h>
 
@@ -3123,13 +3124,19 @@ static void freeze_page_vma(struct vm_area_struct *vma, struct page *page,
 static void freeze_page(struct anon_vma *anon_vma, struct page *page)
 {
 	struct anon_vma_chain *avc;
-	pgoff_t pgoff = page_to_pgoff(page);
+	struct lockfree_list_node *onode = anon_vma->head_node.next;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)anon_vma->head_node.next);
 
 	VM_BUG_ON_PAGE(!PageHead(page), page);
 
-	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root, pgoff,
-			pgoff + HPAGE_PMD_NR - 1) {
-		unsigned long address = __vma_address(page, avc->vma);
+	lockfree_list_for_each_entry(avc, node, same_anon_vma, onode) {
+		unsigned long address;
+		if (&avc->same_anon_vma == &anon_vma->tail_node)
+			break;
+		if (is_marked_ref((long)onode))
+			continue;
+
+		address = __vma_address(page, avc->vma);
 
 		mmu_notifier_invalidate_range_start(avc->vma->vm_mm,
 				address, address + HPAGE_PMD_SIZE);
@@ -3206,12 +3213,17 @@ static void unfreeze_page_vma(struct vm_area_struct *vma, struct page *page,
 static void unfreeze_page(struct anon_vma *anon_vma, struct page *page)
 {
 	struct anon_vma_chain *avc;
-	pgoff_t pgoff = page_to_pgoff(page);
+	struct lockfree_list_node *onode = anon_vma->head_node.next;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)anon_vma->head_node.next);
 
-	anon_vma_interval_tree_foreach(avc, &anon_vma->rb_root,
-			pgoff, pgoff + HPAGE_PMD_NR - 1) {
-		unsigned long address = __vma_address(page, avc->vma);
+	lockfree_list_for_each_entry(avc, node, same_anon_vma, onode) {
+		unsigned long address;
+		if (&avc->same_anon_vma == &anon_vma->tail_node)
+			break;
+		if (is_marked_ref((long)onode))
+			continue;
 
+		address = __vma_address(page, avc->vma);
 		mmu_notifier_invalidate_range_start(avc->vma->vm_mm,
 				address, address + HPAGE_PMD_SIZE);
 		unfreeze_page_vma(avc->vma, page, address);

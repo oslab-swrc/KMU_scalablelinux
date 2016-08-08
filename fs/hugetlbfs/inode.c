@@ -36,6 +36,7 @@
 #include <linux/magic.h>
 #include <linux/migrate.h>
 #include <linux/uio.h>
+#include <linux/lockfree_list.h>
 
 #include <asm/uaccess.h>
 
@@ -325,17 +326,23 @@ static void remove_huge_page(struct page *page)
 }
 
 static void
-hugetlb_vmdelete_list(struct rb_root *root, pgoff_t start, pgoff_t end)
+hugetlb_vmdelete_list(struct lockfree_list_head *head, pgoff_t start, pgoff_t end)
 {
 	struct vm_area_struct *vma;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)head->head->next);
+	struct lockfree_list_node *onode = head->head->next;
 
 	/*
 	 * end == 0 indicates that the entire range after
 	 * start should be unmapped.
 	 */
-	vma_interval_tree_foreach(vma, root, start, end ? end : ULONG_MAX) {
+	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
 		unsigned long v_offset;
 		unsigned long v_end;
+		if (&vma->shared.linear == head->tail)
+			break;
+		if (is_marked_ref((long)onode))
+			continue;
 
 		/*
 		 * Can the expression below overflow on 32-bit arches?
@@ -507,7 +514,7 @@ static int hugetlb_vmtruncate(struct inode *inode, loff_t offset)
 
 	i_size_write(inode, offset);
 	i_mmap_lock_write(mapping);
-	if (!RB_EMPTY_ROOT(&mapping->i_mmap))
+	if (!lockfree_list_empty(&mapping->i_mmap))
 		hugetlb_vmdelete_list(&mapping->i_mmap, pgoff, 0);
 	i_mmap_unlock_write(mapping);
 	remove_inode_hugepages(inode, offset, LLONG_MAX);
@@ -532,7 +539,7 @@ static long hugetlbfs_punch_hole(struct inode *inode, loff_t offset, loff_t len)
 
 		inode_lock(inode);
 		i_mmap_lock_write(mapping);
-		if (!RB_EMPTY_ROOT(&mapping->i_mmap))
+		if (!lockfree_list_empty(&mapping->i_mmap))
 			hugetlb_vmdelete_list(&mapping->i_mmap,
 						hole_start >> PAGE_SHIFT,
 						hole_end  >> PAGE_SHIFT);

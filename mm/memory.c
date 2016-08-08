@@ -63,6 +63,7 @@
 #include <linux/dma-debug.h>
 #include <linux/debugfs.h>
 #include <linux/userfaultfd_k.h>
+#include <linux/lockfree_list.h>
 
 #include <asm/io.h>
 #include <asm/pgalloc.h>
@@ -527,6 +528,8 @@ void free_pgd_range(struct mmu_gather *tlb,
 	} while (pgd++, addr = next, addr != end);
 }
 
+extern void free_anon_vma_chain(void);
+
 void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
 		unsigned long floor, unsigned long ceiling)
 {
@@ -560,6 +563,7 @@ void free_pgtables(struct mmu_gather *tlb, struct vm_area_struct *vma,
 		}
 		vma = next;
 	}
+	free_anon_vma_chain();
 }
 
 int __pte_alloc(struct mm_struct *mm, struct vm_area_struct *vma,
@@ -2366,14 +2370,19 @@ static void unmap_mapping_range_vma(struct vm_area_struct *vma,
 	zap_page_range_single(vma, start_addr, end_addr - start_addr, details);
 }
 
-static inline void unmap_mapping_range_tree(struct rb_root *root,
+static inline void unmap_mapping_range_linear_list(struct lockfree_list_head *head,
 					    struct zap_details *details)
 {
 	struct vm_area_struct *vma;
 	pgoff_t vba, vea, zba, zea;
+	struct lockfree_list_node *node = (struct lockfree_list_node *)get_unmarked_ref((long)head->head->next);
+	struct lockfree_list_node *onode = head->head->next;
 
-	vma_interval_tree_foreach(vma, root,
-			details->first_index, details->last_index) {
+	lockfree_list_for_each_entry(vma, node, shared.linear, onode) {
+		if (&vma->shared.linear == head->tail)
+			break;
+		if (is_marked_ref((long)onode))
+			continue;
 
 		vba = vma->vm_pgoff;
 		vea = vba + vma_pages(vma) - 1;
@@ -2433,8 +2442,8 @@ void unmap_mapping_range(struct address_space *mapping,
 
 	/* DAX uses i_mmap_lock to serialise file truncate vs page fault */
 	i_mmap_lock_write(mapping);
-	if (unlikely(!RB_EMPTY_ROOT(&mapping->i_mmap)))
-		unmap_mapping_range_tree(&mapping->i_mmap, &details);
+	if (unlikely(!lockfree_list_empty(&mapping->i_mmap)))
+		unmap_mapping_range_linear_list(&mapping->i_mmap, &details);
 	i_mmap_unlock_write(mapping);
 }
 EXPORT_SYMBOL(unmap_mapping_range);
