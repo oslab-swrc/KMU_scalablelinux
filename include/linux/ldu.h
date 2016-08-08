@@ -17,10 +17,16 @@ struct ldu_head {
 
 struct ldu_node {
 	void *key;
+	void *key2;
 	int mark;
 	int op_num;
 	struct rb_root *root;
 	struct llist_node ll_node;
+};
+
+struct pldu_deferred {
+	struct llist_head list;
+	struct delayed_work wq;
 };
 
 struct ldu_anon_node {
@@ -43,13 +49,11 @@ static inline void anon_vma_init_ldu_head(struct ldu_head *dp)
 	INIT_DELAYED_WORK(&dp->sync, avc_free_work_func);
 }
 
-void i_mmap_free_work_func(struct work_struct *work);
 
 void i_mmap_ldu_physical_update(int op, struct vm_area_struct *vma, struct rb_root *root);
 static inline void i_mmap_init_ldu_head(struct ldu_head *dp)
 {
 	init_llist_head(&dp->ll_head);
-	INIT_DELAYED_WORK(&dp->sync, i_mmap_free_work_func);
 }
 
 

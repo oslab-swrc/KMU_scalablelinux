@@ -253,14 +253,23 @@ static void i_callback(struct rcu_head *head)
 	kmem_cache_free(inode_cachep, inode);
 }
 
+extern void clean_percore_mapping(struct address_space *mapping);
+
 static void destroy_inode(struct inode *inode)
 {
 	BUG_ON(!list_empty(&inode->i_lru));
-	if (inode->i_mapping && !llist_empty(&inode->i_mapping->lduh.ll_head)) {
-		flush_delayed_work(&inode->i_mapping->lduh.sync);
+	if (inode->i_mapping) {
+		clean_percore_mapping(inode->i_mapping);
+		__destroy_inode(inode);
+		might_sleep();
+		if (rwsem_is_locked(&inode->i_mapping->i_mmap_rwsem)) {
+			down_write(&inode->i_mapping->i_mmap_rwsem);
+			up_write(&inode->i_mapping->i_mmap_rwsem);
+		}
+	} else {
+		__destroy_inode(inode);
 	}
 
-	__destroy_inode(inode);
 	if (inode->i_sb->s_op->destroy_inode)
 		inode->i_sb->s_op->destroy_inode(inode);
 	else
@@ -344,8 +353,6 @@ void inc_nlink(struct inode *inode)
 	inode->__i_nlink++;
 }
 EXPORT_SYMBOL(inc_nlink);
-
-extern void i_mmap_free_work_func(struct work_struct *w);
 
 void address_space_init_once(struct address_space *mapping)
 {
@@ -1916,6 +1923,9 @@ void __init inode_init(void)
 
 	for (loop = 0; loop < (1U << i_hash_shift); loop++)
 		INIT_HLIST_HEAD(&inode_hashtable[loop]);
+
+
+
 }
 
 void init_special_inode(struct inode *inode, umode_t mode, dev_t rdev)
