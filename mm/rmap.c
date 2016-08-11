@@ -217,7 +217,7 @@ void synchronize_ldu_anon(struct anon_vma *anon)
 	struct ldu_head *lduh = &anon->lduh;
 
 	entry = llist_del_all(&lduh->ll_head);
-	//entry = llist_reverse_order(entry);
+	entry = llist_reverse_order(entry);
 	llist_for_each_entry_safe(dnode, next, entry, ll_node) {
 		struct anon_vma_chain *avc = READ_ONCE(dnode->key);
 		/*

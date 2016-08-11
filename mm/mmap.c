@@ -150,7 +150,7 @@ void synchronize_ldu_i_mmap(struct address_space *mapping)
 	struct ldu_head *lduh = &mapping->lduh;
 
 	entry = llist_del_all(&lduh->ll_head);
-	//entry = llist_reverse_order(entry);
+	entry = llist_reverse_order(entry);
 	llist_for_each_entry_safe(dnode, next, entry, ll_node) {
 		struct vm_area_struct *vma = ACCESS_ONCE(dnode->key);
 		if (xchg(&dnode->mark, 0)) {
