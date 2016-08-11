@@ -82,7 +82,7 @@ static void unmap_region(struct mm_struct *mm,
 static struct workqueue_struct *i_mmap_wq;
 static struct task_struct *free_vma_task;
 
-#define I_MMAP_HASH_ORDER	11
+#define I_MMAP_HASH_ORDER	15
 #define I_MMAP_HASH_SIZE (1 << I_MMAP_HASH_ORDER)
 
 struct pldu_deferred_i_mmap {
