@@ -150,7 +150,7 @@ bool anon_vma_ldu_logical_update(struct anon_vma *anon, struct ldu_node *dnode)
 {
 	BUG_ON(!anon);
 	if (llist_add(&dnode->ll_node, &anon->root->lduh.ll_head)) {
-		mod_delayed_work(avc_wq, &anon->root->lduh.sync,
+		queue_delayed_work(avc_wq, &anon->root->lduh.sync,
 				round_jiffies_relative(HZ / 10));
 	}
 	return true;
