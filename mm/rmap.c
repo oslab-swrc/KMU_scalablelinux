@@ -179,9 +179,10 @@ bool anon_vma_ldu_logical_insert(struct anon_vma_chain *avc, struct anon_vma *an
 	if (!anon && !anon->root)
 		return false;
 
-	if (atomic_cmpxchg(&del_dnode->mark, 1, 0) != 1) {
-		BUG_ON(atomic_read(&add_dnode->mark));
-		atomic_set(&add_dnode->mark, 1);
+
+	if (!xchg(&del_dnode->mark, 0)) {
+		BUG_ON(add_dnode->mark);
+		WRITE_ONCE(add_dnode->mark, 1);
 		if (!test_and_set_bit(LDU_OP_ADD, &avc->dnode.used)) {
 			add_dnode->op_num = LDU_OP_ADD;
 			add_dnode->key = avc;
@@ -202,9 +203,9 @@ bool anon_vma_ldu_logical_remove(struct anon_vma_chain *avc, struct anon_vma *an
 	if (!anon && !anon->root)
 		return false;
 
-	if (atomic_cmpxchg(&add_dnode->mark, 1, 0) != 1) {
-		BUG_ON(atomic_read(&del_dnode->mark));
-		atomic_set(&del_dnode->mark, 1);
+	if (!xchg(&add_dnode->mark, 0)) {
+		BUG_ON(del_dnode->mark);
+		WRITE_ONCE(del_dnode->mark, 1);
 		if (!test_and_set_bit(LDU_OP_DEL, &avc->dnode.used)) {
 			del_dnode->op_num = LDU_OP_DEL;
 			del_dnode->key = avc;
@@ -236,16 +237,15 @@ void synchronize_ldu_anon_internal(struct llist_head *head)
 	entry = llist_del_all(head);
 	llist_for_each_entry(dnode, entry, ll_node) {
 		struct anon_vma_chain *avc = READ_ONCE(dnode->key);
-		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
+		if (xchg(&dnode->mark, 0)) {
 			anon_vma_ldu_physical_update(dnode->op_num, avc,
 					READ_ONCE(dnode->root));
 		}
 		clear_bit(dnode->op_num, &avc->dnode.used);
 		/* one more check */
-		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
+		if (xchg(&dnode->mark, 0)) {
 			anon_vma_ldu_physical_update(dnode->op_num, avc,
 					READ_ONCE(dnode->root));
-			pr_info("ldu synch un normal state\n");
 		}
 	}
 }

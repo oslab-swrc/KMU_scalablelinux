@@ -145,9 +145,9 @@ bool i_mmap_ldu_logical_insert(struct vm_area_struct *vma,
 	struct ldu_node *add_dnode = &vma->dnode.node[0];
 	struct ldu_node *del_dnode = &vma->dnode.node[1];
 
-	if (atomic_cmpxchg(&del_dnode->mark, 1, 0) != 1) {
-		BUG_ON(atomic_read(&add_dnode->mark));
-		atomic_set(&add_dnode->mark, 1);
+	if (!xchg(&del_dnode->mark, 0)) {
+		BUG_ON(add_dnode->mark);
+		WRITE_ONCE(add_dnode->mark, 1);
 		if (!test_and_set_bit(LDU_OP_ADD, &vma->dnode.used)) {
 			add_dnode->op_num = LDU_OP_ADD;
 			add_dnode->key = vma;
@@ -166,9 +166,9 @@ bool i_mmap_ldu_logical_remove(struct vm_area_struct *vma,
 	struct ldu_node *add_dnode = &vma->dnode.node[0];
 	struct ldu_node *del_dnode = &vma->dnode.node[1];
 
-	if (atomic_cmpxchg(&add_dnode->mark, 1, 0) != 1) {
-		BUG_ON(atomic_read(&del_dnode->mark));
-		atomic_set(&del_dnode->mark, 1);
+	if (!xchg(&add_dnode->mark, 0)) {
+		BUG_ON(del_dnode->mark);
+		WRITE_ONCE(del_dnode->mark, 1);
 		if (!test_and_set_bit(LDU_OP_DEL, &vma->dnode.used)) {
 			del_dnode->op_num = LDU_OP_DEL;
 			del_dnode->key = vma;
@@ -201,16 +201,15 @@ void synchronize_ldu_i_mmap_internal(struct llist_node *entry)
 
 	llist_for_each_entry(dnode, entry, ll_node) {
 		vma = READ_ONCE(dnode->key);
-		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
+		if (xchg(&dnode->mark, 0)) {
 			i_mmap_ldu_physical_update(dnode->op_num, vma,
 					READ_ONCE(dnode->root));
 
 		}
 		clear_bit(dnode->op_num, &vma->dnode.used);
-		if (atomic_cmpxchg(&dnode->mark, 1, 0) == 1) {
+		if (xchg(&dnode->mark, 0)) {
 			i_mmap_ldu_physical_update(dnode->op_num, vma,
 					READ_ONCE(dnode->root));
-			pr_info("ldu synch un normal state : immap\n");
 		}
 	}
 }
