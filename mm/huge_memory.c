@@ -3338,6 +3338,7 @@ int total_mapcount(struct page *page)
 	return ret;
 }
 
+void synchronize_ldu_anon(struct anon_vma *anon);
 /*
  * This function splits huge page into normal pages. @page can point to any
  * subpage of huge page to split. Split doesn't change the position of @page.

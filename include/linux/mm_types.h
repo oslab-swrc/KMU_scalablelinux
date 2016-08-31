@@ -327,9 +327,6 @@ struct vm_area_struct {
 		unsigned long rb_subtree_last;
 	} shared;
 
-	struct ldu_i_mmap_node dnode;
-	struct llist_node llist;
-
 	/*
 	 * A file's MAP_PRIVATE vma can be in both i_mmap tree and anon_vma
 	 * list, after a COW of one of the file pages.	A MAP_SHARED vma

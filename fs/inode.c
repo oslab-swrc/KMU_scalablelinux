@@ -256,10 +256,6 @@ static void i_callback(struct rcu_head *head)
 static void destroy_inode(struct inode *inode)
 {
 	BUG_ON(!list_empty(&inode->i_lru));
-	if (inode->i_mapping && !llist_empty(&inode->i_mapping->lduh.ll_head)) {
-		flush_delayed_work(&inode->i_mapping->lduh.sync);
-	}
-
 	__destroy_inode(inode);
 	if (inode->i_sb->s_op->destroy_inode)
 		inode->i_sb->s_op->destroy_inode(inode);
@@ -345,8 +341,6 @@ void inc_nlink(struct inode *inode)
 }
 EXPORT_SYMBOL(inc_nlink);
 
-extern void i_mmap_free_work_func(struct work_struct *w);
-
 void address_space_init_once(struct address_space *mapping)
 {
 	memset(mapping, 0, sizeof(*mapping));
@@ -356,7 +350,6 @@ void address_space_init_once(struct address_space *mapping)
 	INIT_LIST_HEAD(&mapping->private_list);
 	spin_lock_init(&mapping->private_lock);
 	mapping->i_mmap = RB_ROOT;
-	i_mmap_init_ldu_head(&mapping->lduh);
 }
 EXPORT_SYMBOL(address_space_init_once);
 
