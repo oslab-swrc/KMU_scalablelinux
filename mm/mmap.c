@@ -118,7 +118,6 @@ bool i_mmap_ldu_logical_update(struct address_space *mapping,
 	if (first) {
 		ldu = llist_entry(first, struct ldu_node, ll_node);
 		if (READ_ONCE(ldu->root) != READ_ONCE(dnode->root)) {
-			//pr_info("conflict hash table\n");
 			locked_mapping = READ_ONCE(ldu->key2);
 			entry = llist_del_all(&p->list);
 			llist_add(&dnode->ll_node, &p->list);
@@ -139,42 +138,48 @@ out:
 	return true;
 }
 
-bool i_mmap_ldu_logical_insert(struct vm_area_struct *vma,
-		struct address_space *mapping)
+bool i_mmap_ldu_logical_insert(struct vm_area_struct *obj,
+		struct address_space *head)
 {
-	struct ldu_node *add_dnode = &vma->dnode.node[0];
-	struct ldu_node *del_dnode = &vma->dnode.node[1];
+	struct ldu_node *add_dnode = &obj->dnode.node[0];
+	struct ldu_node *del_dnode = &obj->dnode.node[1];
 
+	/* Phase 1 : update-side removing logs */
 	if (!xchg(&del_dnode->mark, 0)) {
 		BUG_ON(add_dnode->mark);
 		WRITE_ONCE(add_dnode->mark, 1);
-		if (!test_and_set_bit(LDU_OP_ADD, &vma->dnode.used)) {
+		/* Phase 2 : reusing garbage log */
+		if (!test_and_set_bit(LDU_OP_ADD, &obj->dnode.used)) {
 			add_dnode->op_num = LDU_OP_ADD;
-			add_dnode->key = vma;
-			add_dnode->key2 = mapping;
-			add_dnode->root = &mapping->i_mmap;
-			i_mmap_ldu_logical_update(mapping, add_dnode);
+			add_dnode->key = obj;
+			add_dnode->key2 = head;
+			add_dnode->root = &head->i_mmap;
+			/* Phase 3(slow-path): insert log to queue */
+			i_mmap_ldu_logical_update(head, add_dnode);
 		}
 	}
 
 	return true;
 }
 
-bool i_mmap_ldu_logical_remove(struct vm_area_struct *vma,
-		struct address_space *mapping)
+bool i_mmap_ldu_logical_remove(struct vm_area_struct *obj,
+		struct address_space *head)
 {
-	struct ldu_node *add_dnode = &vma->dnode.node[0];
-	struct ldu_node *del_dnode = &vma->dnode.node[1];
+	struct ldu_node *add_dnode = &obj->dnode.node[0];
+	struct ldu_node *del_dnode = &obj->dnode.node[1];
 
+	/* Phase 1 : update-side removing logs */
 	if (!xchg(&add_dnode->mark, 0)) {
 		BUG_ON(del_dnode->mark);
 		WRITE_ONCE(del_dnode->mark, 1);
-		if (!test_and_set_bit(LDU_OP_DEL, &vma->dnode.used)) {
+		/* Phase 2 : reusing garbage log */
+		if (!test_and_set_bit(LDU_OP_DEL, &obj->dnode.used)) {
 			del_dnode->op_num = LDU_OP_DEL;
-			del_dnode->key = vma;
-			del_dnode->key2 = mapping;
-			del_dnode->root = &mapping->i_mmap;
-			i_mmap_ldu_logical_update(mapping, del_dnode);
+			del_dnode->key = obj;
+			del_dnode->key2 = head;
+			del_dnode->root = &head->i_mmap;
+			/* Phase 3(slow-path): insert log to queue */
+			i_mmap_ldu_logical_update(head, del_dnode);
 		}
 	}
 
@@ -196,17 +201,18 @@ void i_mmap_ldu_physical_update(int op, struct vm_area_struct *vma,
 void synchronize_ldu_i_mmap_internal(struct llist_node *entry)
 {
 	struct ldu_node *dnode;
-	struct address_space *mapping;
 	struct vm_area_struct *vma;
 
+	/* iteration all logs */
 	llist_for_each_entry(dnode, entry, ll_node) {
 		vma = READ_ONCE(dnode->key);
+		/* atomic swap due to update-side removing */
 		if (xchg(&dnode->mark, 0)) {
 			i_mmap_ldu_physical_update(dnode->op_num, vma,
 					READ_ONCE(dnode->root));
-
 		}
 		clear_bit(dnode->op_num, &vma->dnode.used);
+		/* once again check due to reusing garbage logs */
 		if (xchg(&dnode->mark, 0)) {
 			i_mmap_ldu_physical_update(dnode->op_num, vma,
 					READ_ONCE(dnode->root));
@@ -262,8 +268,6 @@ void clean_percore_mapping(struct address_space *mapping)
 	struct i_mmap_slot *slot;
 	struct pldu_deferred_i_mmap *p;
 	struct llist_node *entry;
-	struct ldu_node *dnode;
-	struct address_space *old;
 	struct llist_node *first;
 	struct ldu_node *ldu;
 
@@ -292,8 +296,6 @@ static int free_vma_thread(void *dummy)
 	struct vm_area_struct *vnode, *vnext;
 	int cpu, i;
 	struct i_mmap_slot *slot;
-	struct pldu_deferred_i_mmap *p;
-	struct address_space *mapping;
 	struct llist_node *entry;
 	struct llist_head *ll;
 	struct address_space *locked_mapping = NULL;
@@ -512,10 +514,6 @@ error:
 static void __remove_shared_vm_struct(struct vm_area_struct *vma,
 		struct file *file, struct address_space *mapping)
 {
-	struct llist_node *entry;
-	struct vm_area_struct *vnode, *vnext;
-
-
 	flush_dcache_mmap_lock(mapping);
 	i_mmap_ldu_logical_remove(vma, mapping);
 	//vma_interval_tree_remove(vma, &mapping->i_mmap);
@@ -525,7 +523,6 @@ static void __remove_shared_vm_struct(struct vm_area_struct *vma,
 		atomic_inc(&file_inode(file)->i_writecount);
 	if (vma->vm_flags & VM_SHARED)
 		mapping_unmap_writable(mapping);
-
 }
 
 /*

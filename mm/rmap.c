@@ -137,14 +137,12 @@ static inline struct anon_vma_chain *anon_vma_chain_alloc(gfp_t gfp)
 
 void anon_vma_global_lock(void)
 {
-//	pr_info("anon global_lock\n");
 	mutex_lock(&anon_vma_mutex);
 }
 
 void anon_vma_global_unlock(void)
 {
 	mutex_unlock(&anon_vma_mutex);
-//	pr_info("anon global_unlock\n");
 }
 
 static void anon_vma_chain_free(struct anon_vma_chain *anon_vma_chain)
@@ -171,47 +169,51 @@ bool anon_vma_ldu_logical_update(struct anon_vma *anon, struct ldu_node *dnode)
 	return true;
 }
 
-bool anon_vma_ldu_logical_insert(struct anon_vma_chain *avc, struct anon_vma *anon)
+bool anon_vma_ldu_logical_insert(struct anon_vma_chain *obj, struct anon_vma *head)
 {
-	struct ldu_node *add_dnode = &avc->dnode.node[0];
-	struct ldu_node *del_dnode = &avc->dnode.node[1];
+	struct ldu_node *add_dnode = &obj->dnode.node[0];
+	struct ldu_node *del_dnode = &obj->dnode.node[1];
 
-	if (!anon && !anon->root)
+	if (!head && !head->root)
 		return false;
-
-
+	/* Phase 1 : update-side removing logs */
 	if (!xchg(&del_dnode->mark, 0)) {
 		BUG_ON(add_dnode->mark);
 		WRITE_ONCE(add_dnode->mark, 1);
-		if (!test_and_set_bit(LDU_OP_ADD, &avc->dnode.used)) {
+		/* Phase 2 : reusing garbage log */
+		if (!test_and_set_bit(LDU_OP_ADD, &obj->dnode.used)) {
 			add_dnode->op_num = LDU_OP_ADD;
-			add_dnode->key = avc;
-			add_dnode->key2= anon->root;
-			add_dnode->root = &anon->rb_root;
-			anon_vma_ldu_logical_update(anon, add_dnode);
+			add_dnode->key = obj;
+			add_dnode->key2= head->root;
+			add_dnode->root = &head->rb_root;
+			/* Phase 3(slow-path): insert log to queue */
+			anon_vma_ldu_logical_update(head, add_dnode);
 		}
 	}
 
 	return true;
 }
 
-bool anon_vma_ldu_logical_remove(struct anon_vma_chain *avc, struct anon_vma *anon)
+bool anon_vma_ldu_logical_remove(struct anon_vma_chain *obj, struct anon_vma *head)
 {
-	struct ldu_node *add_dnode = &avc->dnode.node[0];
-	struct ldu_node *del_dnode = &avc->dnode.node[1];
+	struct ldu_node *add_dnode = &obj->dnode.node[0];
+	struct ldu_node *del_dnode = &obj->dnode.node[1];
 
-	if (!anon && !anon->root)
+	if (!head && !head->root)
 		return false;
 
+	/* Phase 1 : update-side removing logs */
 	if (!xchg(&add_dnode->mark, 0)) {
 		BUG_ON(del_dnode->mark);
 		WRITE_ONCE(del_dnode->mark, 1);
-		if (!test_and_set_bit(LDU_OP_DEL, &avc->dnode.used)) {
+		/* Phase 2 : reusing garbage log */
+		if (!test_and_set_bit(LDU_OP_DEL, &obj->dnode.used)) {
 			del_dnode->op_num = LDU_OP_DEL;
-			del_dnode->key = avc;
-			del_dnode->key2= anon->root;
-			del_dnode->root = &anon->rb_root;
-			anon_vma_ldu_logical_update(anon, del_dnode);
+			del_dnode->key = obj;
+			del_dnode->key2= head->root;
+			del_dnode->root = &head->rb_root;
+			/* Phase 3(slow-path): insert log to queue */
+			anon_vma_ldu_logical_update(head, del_dnode);
 		}
 	}
 
@@ -235,14 +237,16 @@ void synchronize_ldu_anon_internal(struct llist_head *head)
 	struct ldu_node *dnode;
 
 	entry = llist_del_all(head);
+	/* iteration all logs */
 	llist_for_each_entry(dnode, entry, ll_node) {
 		struct anon_vma_chain *avc = READ_ONCE(dnode->key);
+		/* atomic swap due to update-side removing */
 		if (xchg(&dnode->mark, 0)) {
 			anon_vma_ldu_physical_update(dnode->op_num, avc,
 					READ_ONCE(dnode->root));
 		}
 		clear_bit(dnode->op_num, &avc->dnode.used);
-		/* one more check */
+		/* once again check due to reusing garbage logs */
 		if (xchg(&dnode->mark, 0)) {
 			anon_vma_ldu_physical_update(dnode->op_num, avc,
 					READ_ONCE(dnode->root));
@@ -253,9 +257,6 @@ void synchronize_ldu_anon_internal(struct llist_head *head)
 void synchronize_ldu_anon(struct anon_vma *anon_vma)
 {
 	int cpu;
-	struct ldu_node *dnode;
-	struct anon_vma *root = NULL;
-	struct anon_vma_chain *avc;
 
 	anon_vma_global_lock();
 	for_each_possible_cpu(cpu) {
@@ -272,9 +273,6 @@ EXPORT_SYMBOL_GPL(synchronize_ldu_anon);
 void synchronize_ldu_anon_no_lock(struct anon_vma *anon_vma)
 {
 	int cpu;
-	struct ldu_node *dnode;
-	struct anon_vma *root = NULL;
-	struct anon_vma_chain *avc;
 
 	for_each_possible_cpu(cpu) {
 		struct pldu_deferred *pd;
@@ -316,9 +314,7 @@ static int free_avc_thread(void *dummy)
 							RB_EMPTY_ROOT(&anon->rb_root)) {
 						struct anon_vma *root = anon->root;
 						kmem_cache_free(anon_vma_cachep, anon);
-						//anon_vma_free(anon);
 						if (root != anon && atomic_dec_and_test(&root->refcount))
-							//anon_vma_free(root);
 							kmem_cache_free(anon_vma_cachep, root);
 					}
 				} else {
@@ -566,7 +562,6 @@ int anon_vma_fork(struct vm_area_struct *vma, struct vm_area_struct *pvma)
 void unlink_anon_vmas(struct vm_area_struct *vma)
 {
 	struct anon_vma_chain *avc, *next;
-	struct anon_vma *root = NULL;
 
 	/*
 	 * Unlink each anon_vma chained to the VMA.  This list is ordered
