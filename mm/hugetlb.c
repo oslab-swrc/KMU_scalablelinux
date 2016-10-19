@@ -3911,7 +3911,7 @@ unsigned long hugetlb_change_protection(struct vm_area_struct *vma,
 
 	mmu_notifier_invalidate_range_start(mm, start, end);
 	i_mmap_lock_write(vma->vm_file->f_mapping);
-	synchronize_ldu_i_mmap(vma->vm_file->f_mapping);
+	//synchronize_ldu_i_mmap(vma->vm_file->f_mapping);
 	for (; address < end; address += huge_page_size(h)) {
 		spinlock_t *ptl;
 		ptep = huge_pte_offset(mm, address);

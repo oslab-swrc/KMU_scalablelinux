@@ -448,8 +448,8 @@ static void collect_procs_file(struct page *page, struct list_head *to_kill,
 	struct address_space *mapping = page->mapping;
 
 	i_mmap_lock_write(mapping);
-	synchronize_ldu_i_mmap(mapping);
 	read_lock(&tasklist_lock);
+	synchronize_ldu_i_mmap(mapping);
 	for_each_process(tsk) {
 		pgoff_t pgoff = page_to_pgoff(page);
 		struct task_struct *t = task_early_kill(tsk, force_early);
