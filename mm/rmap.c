@@ -156,42 +156,48 @@ bool anon_vma_ldu_logical_update(struct anon_vma *anon, struct ldu_node *dnode)
 	return true;
 }
 
-bool anon_vma_ldu_logical_insert(struct anon_vma_chain *avc, struct anon_vma *anon)
+bool anon_vma_ldu_logical_insert(struct anon_vma_chain *obj, struct anon_vma *head)
 {
-	struct ldu_node *add_dnode = &avc->dnode.node[0];
-	struct ldu_node *del_dnode = &avc->dnode.node[1];
+	struct ldu_node *add_dnode = &obj->dnode.node[0];
+	struct ldu_node *del_dnode = &obj->dnode.node[1];
 
-	BUG_ON(!anon);
-	BUG_ON(!anon->root);
-	/* First optimiation point - update-side absorbing */
+	BUG_ON(!head);
+	BUG_ON(!head->root);
+
+	/* Phase 1 : update-side removing logs */
 	if (!xchg(&del_dnode->mark, 0)) {
 		BUG_ON(add_dnode->mark);
 		WRITE_ONCE(add_dnode->mark, 1);
-		if (!test_and_set_bit(LDU_OP_ADD, &avc->dnode.used)) {
+		/* Phase 2 : reusing garbage log */
+		if (!test_and_set_bit(LDU_OP_ADD, &obj->dnode.used)) {
 			add_dnode->op_num = LDU_OP_ADD;
-			add_dnode->key = avc;
-			add_dnode->root = &anon->rb_root;
-			anon_vma_ldu_logical_update(anon, add_dnode);
+			add_dnode->key = obj;
+			add_dnode->root = &head->rb_root;
+			/* Phase 3(slow-path): insert log to queue */
+			anon_vma_ldu_logical_update(head, add_dnode);
 		}
 	}
 
 	return true;
 }
 
-bool anon_vma_ldu_logical_remove(struct anon_vma_chain *avc, struct anon_vma *anon)
+bool anon_vma_ldu_logical_remove(struct anon_vma_chain *obj, struct anon_vma *head)
 {
-	struct ldu_node *add_dnode = &avc->dnode.node[0];
-	struct ldu_node *del_dnode = &avc->dnode.node[1];
+	struct ldu_node *add_dnode = &obj->dnode.node[0];
+	struct ldu_node *del_dnode = &obj->dnode.node[1];
 
-	BUG_ON(!anon);
-	BUG_ON(!anon->root);
+	BUG_ON(!head);
+	BUG_ON(!head->root);
+	/* Phase 1 : update-side removing logs */
 	if (!xchg(&add_dnode->mark, 0)) {
 		WRITE_ONCE(del_dnode->mark, 1);
-		if (!test_and_set_bit(LDU_OP_DEL, &avc->dnode.used)) {
+		/* Phase 2 : reusing garbage log */
+		if (!test_and_set_bit(LDU_OP_DEL, &obj->dnode.used)) {
 			del_dnode->op_num = LDU_OP_DEL;
-			del_dnode->key = avc;
-			del_dnode->root = &anon->rb_root;
-			anon_vma_ldu_logical_update(anon, del_dnode);
+			del_dnode->key = obj;
+			del_dnode->root = &head->rb_root;
+			/* Phase 3(slow-path): insert log to queue */
+			anon_vma_ldu_logical_update(head, del_dnode);
 		}
 	}
 
@@ -218,18 +224,16 @@ void synchronize_ldu_anon(struct anon_vma *anon)
 
 	entry = llist_del_all(&lduh->ll_head);
 	entry = llist_reverse_order(entry);
+	/* iteration all logs */
 	llist_for_each_entry_safe(dnode, next, entry, ll_node) {
 		struct anon_vma_chain *avc = READ_ONCE(dnode->key);
-		/*
-		 * This may content with ldu logical update, so this position needs to
-		 * atomic swap operation.
-		 */
+		/* atomic swap due to update-side removing */
 		if (xchg(&dnode->mark, 0)) {
-			/* This time always locks by their object's lock */
 			anon_vma_ldu_physical_update(dnode->op_num, avc,
 					READ_ONCE(dnode->root));
 		}
 		clear_bit(dnode->op_num, &avc->dnode.used);
+		/* once again check due to reusing garbage logs */
 		if (xchg(&dnode->mark, 0)) {
 			anon_vma_ldu_physical_update(dnode->op_num, avc,
 					READ_ONCE(dnode->root));
@@ -245,8 +249,6 @@ void avc_free_work_func(struct work_struct *work)
 			lduh.sync.work);
 	struct llist_node *entry;
 	struct anon_vma_chain *anode, *anext;
-	struct anon_vma *next;
-	int count = 0;
 
 	down_write(&anon_vma->rwsem);
 	synchronize_ldu_anon(anon_vma);
@@ -525,7 +527,6 @@ int anon_vma_fork(struct vm_area_struct *vma, struct vm_area_struct *pvma)
 void unlink_anon_vmas(struct vm_area_struct *vma)
 {
 	struct anon_vma_chain *avc, *next;
-	struct anon_vma *root = NULL;
 
 	/*
 	 * Unlink each anon_vma chained to the VMA.  This list is ordered
