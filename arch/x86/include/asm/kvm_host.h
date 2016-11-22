@@ -34,7 +34,7 @@
 #include <asm/asm.h>
 
 #define KVM_MAX_VCPUS 255
-#define KVM_SOFT_MAX_VCPUS 160
+#define KVM_SOFT_MAX_VCPUS 255
 #define KVM_USER_MEM_SLOTS 509
 /* memory slots that are not exposed to userspace */
 #define KVM_PRIVATE_MEM_SLOTS 3
@@ -793,8 +793,20 @@ struct kvm_vcpu_stat {
 	u32 insn_emulation;
 	u32 insn_emulation_fail;
 	u32 hypercalls;
+	u32 irq_hypercalls;
+	u32 hlt_hypercalls;
+	u32 hlt_yields;
+	u32 hlt_wq;
+	u32 no_lwps;
+	u32 no_lhps;
+	u32 hple_yields;
+	u32 ple_exits;
+	u32 no_coyields;
+	u32 kick_hypercalls;
 	u32 irq_injections;
 	u32 nmi_injections;
+	u32 rwsem_hlt_hypercalls;
+	u32 num_preempts;
 };
 
 struct x86_instruction_info;

@@ -160,6 +160,18 @@ struct kvm_stats_debugfs_item debugfs_entries[] = {
 	{ "halt_attempted_poll", VCPU_STAT(halt_attempted_poll) },
 	{ "halt_wakeup", VCPU_STAT(halt_wakeup) },
 	{ "hypercalls", VCPU_STAT(hypercalls) },
+	{ "irq_hypercalls", VCPU_STAT(irq_hypercalls) },
+	{ "hlt_hypercalls", VCPU_STAT(hlt_hypercalls) },
+	{ "hlt_yields", VCPU_STAT(hlt_yields) },
+	{ "hlt_wq", VCPU_STAT(hlt_wq) },
+	{ "no_lwps", VCPU_STAT(no_lwps) },
+	{ "no_lhps", VCPU_STAT(no_lhps) },
+	{ "ple_exits", VCPU_STAT(ple_exits) },
+	{ "hple_yields", VCPU_STAT(hple_yields) },
+	{ "no_coyields", VCPU_STAT(no_coyields) },
+	{ "num_preempts", VCPU_STAT(num_preempts) },
+	{ "kick_hypercalls", VCPU_STAT(kick_hypercalls) },
+	{ "rwsem_hlt_hypercalls", VCPU_STAT(rwsem_hlt_hypercalls) },
 	{ "request_irq", VCPU_STAT(request_irq_exits) },
 	{ "irq_exits", VCPU_STAT(irq_exits) },
 	{ "host_state_reload", VCPU_STAT(host_state_reload) },
@@ -5897,15 +5909,211 @@ int kvm_emulate_halt(struct kvm_vcpu *vcpu)
 }
 EXPORT_SYMBOL_GPL(kvm_emulate_halt);
 
+#define MAX_YIELD_TRIES     (3)
+
+static bool kvm_vcpu_spin_halt(struct kvm_vcpu *me, struct kvm *kvm)
+{
+	struct kvm_vcpu *vcpu;
+	int i, yielded = 0, pass, tries = MAX_YIELD_TRIES;
+	int last_boosted_vcpu;
+
+#ifdef CONFIG_KVM_ENABLE_COYIELD
+	smp_rmb();
+#endif
+
+	if (!me)
+		me = kvm->vcpus[kvm->last_boosted_vcpu];
+
+	last_boosted_vcpu = me->vcpu_spinlock_stat.last_boosted_vcpu;
+
+	/*
+	 * Difference between this algorithm and PLE handling algorithm:
+	 * - PLE never goes to sleep, however this can
+	 */
+	for (pass = 0; pass < 2 && !yielded && tries; pass++) {
+		/* first check how many threads are running */
+		kvm_for_each_vcpu(i, vcpu, kvm) {
+			if (single_task_running())
+				goto spin_out;
+			if (!pass && i <= last_boosted_vcpu) {
+				i = last_boosted_vcpu;
+				continue;
+			} else if (pass && i > last_boosted_vcpu)
+				break;
+			if (vcpu == me)
+				continue;
+			if (!ACCESS_ONCE(vcpu->preempted))
+				continue;
+			if (ACCESS_ONCE(vcpu->vcpu_spinlock_stat.halted_vcpu))
+				continue;
+			if (waitqueue_active(&vcpu->wq))
+				continue;
+			yielded = kvm_vcpu_yield_to(vcpu);
+			if (yielded > 0) {
+				++me->stat.hlt_yields;
+				me->vcpu_spinlock_stat.last_boosted_vcpu = i;
+#ifdef CONFIG_KVM_ENABLE_COYIELD
+				WRITE_ONCE(kvm->last_boosted_vcpu, i);
+#endif
+				goto spin_out;
+			} else if (yielded < 0) {
+				tries--;
+				if (!tries)
+					break;
+			}
+		}
+	}
+	return false;
+
+ spin_out:
+	return true;
+}
+
+
+/*
+ * kvm_pv_halt_cpu_op: update a vcpu flags
+ */
+
+static void kvm_pv_halt_cpu_op(struct kvm_vcpu *vcpu, __ticket_t ticket_number,
+							   __ticket_t ticket_holder, u64 spin_instance,
+							   u64 order)
+{
+	struct kvm_vcpu_spinlock_stat *spinlock_stat = &vcpu->vcpu_spinlock_stat;
+	struct kvm *kvm = vcpu->kvm;
+#ifdef CONFIG_KVM_ENABLE_COYIELD
+	struct kvm *cur_kvm;
+#endif
+
+	spinlock_stat->spin_instance = spin_instance;
+	spinlock_stat->order = order;
+	spinlock_stat->ticket_info.ticket_number = ticket_number;
+	spinlock_stat->ticket_info.ticket_holder = ticket_holder;
+	spinlock_stat->halted_vcpu = true;
+
+#ifdef CONFIG_KVM_GLOBAL_LOCK_HOLDER_LIST
+	clear_bit(vcpu->vcpu_id, kvm->vcpu_lock_holder);
+#endif
+
+	smp_wmb();
+
+	/*
+	 * phase 1: Let me try to give to my pals first
+	 */
+	if (kvm_vcpu_spin_halt(vcpu, kvm))
+		goto yield_out;
+#ifdef CONFIG_KVM_ENABLE_COYIELD
+	/*
+	 * phase 2: It's time to give to other co-running VMs
+	 * issues: the simplest way to do is hold the global
+	 *         kvm_lock and iterate over the vCPUs, but
+	 *         it's non-scalable solution
+	 *		   Without holding the lock, there is a race
+	 *		   condition in case VMs are added or removed
+	 *		   and top of that the spinlock is also held by
+	 *		   stats function so there will be more contention
+	 *		   since I am always collecting the stat.
+	 *		   rcu infra requires a lot of overhauling
+	 *		   TODO: replace the below stuff with rcu infra
+	 */
+	else {
+		if (allow_other_vm_yielding) {
+			//		spin_lock(&kvm_lock);
+			list_for_each_entry(cur_kvm, &vm_list, vm_list) {
+				if (kvm == cur_kvm)
+					continue;
+				if (kvm_vcpu_spin_halt(NULL, cur_kvm)) {
+					//				spin_unlock(&kvm_lock);
+					++vcpu->stat.no_coyields;
+					goto yield_out;
+				}
+			}
+			//		spin_unlock(&kvm_lock);
+		}
+	}
+#endif
+	++vcpu->stat.hlt_wq;
+	kvm_vcpu_halt(vcpu);
+
+ yield_out:
+	return;
+}
+
+#ifdef CONFIG_KVM_UPDATE_SCHED_PRIORITY
+static int kvm_vcpu_update_sched_priority(struct kvm_vcpu *vcpu, bool upgrade)
+{
+
+    struct pid *pid;
+    struct task_struct *task = NULL;
+    int ret = -1;
+	struct sched_param param;
+
+    rcu_read_lock();
+    pid = rcu_dereference(vcpu->pid);
+    if (pid)
+        task = get_pid_task(pid, PIDTYPE_PID);
+    rcu_read_unlock();
+
+    if (!task)
+        goto policy_out;
+
+	if (upgrade) {
+		param.sched_priority = MAX_RT_PRIO / 2;
+		ret = sched_setscheduler(task, SCHED_RR, &param);
+		if (ret)
+			goto policy_out;
+	} else {
+		param.sched_priority = 0;
+		ret = sched_setscheduler(task, SCHED_NORMAL, &param);
+		if (ret)
+			goto policy_out;
+		set_user_nice(task, 0);
+	}
+	ret = 0;
+
+ policy_out:
+    return ret;
+}
+#endif
+
 /*
  * kvm_pv_kick_cpu_op:  Kick a vcpu.
  *
  * @apicid - apicid of vcpu to be kicked.
  */
-static void kvm_pv_kick_cpu_op(struct kvm *kvm, unsigned long flags, int apicid)
+static void kvm_pv_kick_cpu_op(struct kvm_vcpu *vcpu, unsigned long flags,
+							   int apicid, int next_holder_vcpu_id)
 {
 	struct kvm_lapic_irq lapic_irq;
+	struct kvm *kvm = vcpu->kvm;
+	struct kvm_vcpu *next_vcpu = kvm->vcpus[next_holder_vcpu_id];
+	struct kvm_vcpu_spinlock_stat *s_next = &next_vcpu->vcpu_spinlock_stat;
+	struct kvm_vcpu_spinlock_stat *s_cur = &vcpu->vcpu_spinlock_stat;
+#ifdef CONFIG_KVM_UPDATE_SCHED_PRIORITY
+	int ret;
+#endif
 
+	/*
+	 * If the next_vcpu is still preempted, then it's
+	 * LWP issue, which needs to be counted.
+	 * Although, it won't be accurate because, by
+	 * the time we check, there is a possibility
+	 * that the waiter may get scheduled just after
+	 * that. Still, this will give a rough estimate
+	 * of how many waiters are in the preempted
+	 * state
+	 */
+	if (ACCESS_ONCE(next_vcpu->preempted))
+		++next_vcpu->stat.no_lwps;
+
+#ifdef CONFIG_KVM_UPDATE_SCHED_PRIORITY
+	/*
+	 * update the scheduling priority of the
+	 * lock holder right now!
+	 */
+	ret = kvm_vcpu_update_sched_priority(next_vcpu, true);
+	if (unlikely(ret))
+		printk(KERN_INFO "updating sched did not work");
+#endif
 	lapic_irq.shorthand = 0;
 	lapic_irq.dest_mode = 0;
 	lapic_irq.dest_id = apicid;
@@ -5913,6 +6121,32 @@ static void kvm_pv_kick_cpu_op(struct kvm *kvm, unsigned long flags, int apicid)
 
 	lapic_irq.delivery_mode = APIC_DM_REMRD;
 	kvm_irq_delivery_to_apic(kvm, NULL, &lapic_irq, NULL);
+	/* reset the whole table */
+	s_cur->spin_sync = false;
+
+	/* ticket holder info */
+    s_next->ticket_info.ticket_holder = s_next->ticket_info.ticket_number;
+	s_next->spin_sync = true;
+    s_next->halted_vcpu = false;
+
+	/* calculate the number of lock holder preemptions */
+	vcpu->lhp_start_monitor = false;
+	next_vcpu->lhp_start_monitor = true;
+
+#ifdef CONFIG_KVM_GLOBAL_LOCK_HOLDER_LIST
+	set_bit(holder_vcpu_id, kvm->vcpu_lock_holder);
+	clear_bit(vcpu->vcpu_id, kvm->vcpu_lock_holder);
+#endif
+
+#ifdef CONFIG_KVM_UPDATE_SCHED_PRIORITY
+	/*
+	 * time to decrease the priority of the lock releaser
+	 */
+	if (!ret)
+		kvm_vcpu_update_sched_priority(vcpu, false);
+#endif
+
+	smp_wmb();
 }
 
 void kvm_vcpu_deactivate_apicv(struct kvm_vcpu *vcpu)
@@ -5956,11 +6190,18 @@ int kvm_emulate_hypercall(struct kvm_vcpu *vcpu)
 	switch (nr) {
 	case KVM_HC_VAPIC_POLL_IRQ:
 		ret = 0;
+		++vcpu->stat.irq_hypercalls;
 		break;
 	case KVM_HC_KICK_CPU:
-		kvm_pv_kick_cpu_op(vcpu->kvm, a0, a1);
+		kvm_pv_kick_cpu_op(vcpu, a0, a1, a2);
+		++vcpu->stat.kick_hypercalls;
 		ret = 0;
 		break;
+    case KVM_HC_HALT_CPU:
+        kvm_pv_halt_cpu_op(vcpu, a0, a1, a2, a3);
+		++vcpu->stat.hlt_hypercalls;
+		ret = 0;
+        break;
 	default:
 		ret = -KVM_ENOSYS;
 		break;

@@ -78,6 +78,9 @@ module_param(halt_poll_ns_grow, int, S_IRUGO);
 static unsigned int halt_poll_ns_shrink;
 module_param(halt_poll_ns_shrink, int, S_IRUGO);
 
+int allow_other_vm_yielding = false;
+module_param(allow_other_vm_yielding, uint, S_IRUGO | S_IWUSR);
+
 /*
  * Ordering of locks:
  *
@@ -233,6 +236,7 @@ int kvm_vcpu_init(struct kvm_vcpu *vcpu, struct kvm *kvm, unsigned id)
 	kvm_vcpu_set_in_spin_loop(vcpu, false);
 	kvm_vcpu_set_dy_eligible(vcpu, false);
 	vcpu->preempted = false;
+	vcpu->lhp_start_monitor = false;
 
 	r = kvm_arch_vcpu_init(vcpu);
 	if (r < 0)
@@ -1970,7 +1974,7 @@ static void shrink_halt_poll_ns(struct kvm_vcpu *vcpu)
 	trace_kvm_halt_poll_ns_shrink(vcpu->vcpu_id, val, old);
 }
 
-static int kvm_vcpu_check_block(struct kvm_vcpu *vcpu)
+int kvm_vcpu_check_block(struct kvm_vcpu *vcpu)
 {
 	if (kvm_arch_vcpu_runnable(vcpu)) {
 		kvm_make_request(KVM_REQ_UNHALT, vcpu);
@@ -1983,6 +1987,7 @@ static int kvm_vcpu_check_block(struct kvm_vcpu *vcpu)
 
 	return 0;
 }
+EXPORT_SYMBOL_GPL(kvm_vcpu_check_block);
 
 /*
  * The vCPU has executed a HLT instruction with in-kernel mode enabled.
@@ -2150,6 +2155,7 @@ void kvm_vcpu_on_spin(struct kvm_vcpu *me)
 	 * VCPU is holding the lock that we need and will release it.
 	 * We approximate round-robin by starting at the last boosted VCPU.
 	 */
+	++me->stat.ple_exits;
 	for (pass = 0; pass < 2 && !yielded && try; pass++) {
 		kvm_for_each_vcpu(i, vcpu, kvm) {
 			if (!pass && i <= last_boosted_vcpu) {
@@ -2161,7 +2167,9 @@ void kvm_vcpu_on_spin(struct kvm_vcpu *me)
 				continue;
 			if (vcpu == me)
 				continue;
-			if (waitqueue_active(&vcpu->wq) && !kvm_arch_vcpu_runnable(vcpu))
+			if (!kvm_arch_vcpu_runnable(vcpu))
+				continue;
+			if (waitqueue_active(&vcpu->wq))
 				continue;
 			if (!kvm_vcpu_eligible_for_directed_yield(vcpu))
 				continue;
@@ -2169,6 +2177,7 @@ void kvm_vcpu_on_spin(struct kvm_vcpu *me)
 			yielded = kvm_vcpu_yield_to(vcpu);
 			if (yielded > 0) {
 				kvm->last_boosted_vcpu = i;
+				++me->stat.hple_yields;
 				break;
 			} else if (yielded < 0) {
 				try--;
@@ -2183,6 +2192,111 @@ void kvm_vcpu_on_spin(struct kvm_vcpu *me)
 	kvm_vcpu_set_dy_eligible(me, false);
 }
 EXPORT_SYMBOL_GPL(kvm_vcpu_on_spin);
+
+void kvm_englightened_vcpu_on_spin(struct kvm_vcpu *me)
+{
+	struct kvm *kvm = me->kvm;
+	struct kvm_vcpu *vcpu;
+	int last_boosted_vcpu = me->kvm->last_boosted_vcpu;
+	int yielded = 0;
+	int try = 3;
+	int pass;
+	int i;
+	me->vcpu_spinlock_stat.halted_vcpu = false;
+
+	kvm_vcpu_set_in_spin_loop(me, true);
+	/*
+	 * We boost the priority of a VCPU that is runnable but not
+	 * currently running, because it got preempted by something
+	 * else and called schedule in __vcpu_run.  Hopefully that
+	 * VCPU is holding the lock that we need and will release it.
+	 * We approximate round-robin by starting at the last boosted VCPU.
+	 */
+#ifdef CONFIG_KVM_GLOBAL_LOCK_HOLDER_LIST
+	/* phase 1: yield to lock holder */
+	for_each_set_bit_from(last_boosted_vcpu, kvm->vcpu_lock_holder,
+						  atomic_read(&kvm->online_vcpus)) {
+		yielded = kvm_vcpu_yield_to(kvm->id_ordered_vcpus[last_boosted_vcpu]);
+		if (yielded > 0) {
+			kvm->last_boosted_vcpu = last_boosted_vcpu;
+			goto spin_out;
+		}
+	}
+#endif
+	/* This one will only give access to the ones who are either holders or
+	 * are doing some job without the spinlock contention. This one
+	 * does not ensure that the very next waiter should be working or not,
+	 * which is why it is wrong */
+	/* phase 2: yield to other guy who is scheduled out*/
+	for (pass = 0; pass < 2 && !yielded; ++pass) {
+		kvm_for_each_vcpu(i, vcpu, kvm) {
+			//struct kvm_vcpu_spinlock_stat *spinlock_stat = vcpu->vcpu_spinlock_stat;
+			if (!pass && i <= last_boosted_vcpu) {
+				i = last_boosted_vcpu;
+				continue;
+			} else if (pass && i > last_boosted_vcpu)
+				goto spin_out;
+			if (!ACCESS_ONCE(vcpu->preempted)) /* only scheduled out ones */
+				continue;
+			if (vcpu == me) /* not to me */
+				continue;
+			if (!kvm_arch_vcpu_runnable(vcpu)) /* should be runnable */
+				continue;
+			if (waitqueue_active(&vcpu->wq)) /* halt exited ones */
+				continue;
+			/* yield to the guy whose ticket distance is 1 */
+#if 0
+			if (ACCESS_ONCE(spinlock_stat->ticket_info.ticket_number) -
+				ACCESS_ONCE(spinlock_stat->ticket_info.ticket_holder) > 1)
+				continue;
+#endif
+			/* now, this distance can be either 0 or 1 */
+			//if (!waitqueue_active(&vcpu->wq))
+			{
+				yielded = kvm_vcpu_yield_to(vcpu);
+				if (yielded > 0) {
+					kvm->last_boosted_vcpu = i;
+					goto spin_out;
+				} else if (yielded < 0) {
+					try--;
+					if (!try)
+						goto spin_out;
+				}
+			}
+#if 0
+			else { /* need to wake this guy up right now */
+				kvm_vcpu_kick(vcpu);
+				/* now, I'll give my yield to this guy for further running */
+				yielded = kvm_vcpu_yield_to(vcpu);
+				if (yielded > 0) {
+					kvm->last_boosted_vcpu = i;
+					goto spin_out;
+				} else if (yielded < 0) {
+					try--;
+					if (!try)
+						goto spin_out;
+				}
+			}
+#endif
+		}
+	}
+	/*
+	 * Phase 1: iterate over all the vcpu_lock_holder
+	 *          bitmap and yield to those guys
+	 * Phase 2: If cannot for any of those, then find
+	 *          the one whose ticket distance is 1 and yield to that guy
+	 * Phase 3: if no one, then 2 possibilities:
+	 *			- keep looping
+	 *			- go to sleep --> this requires modification to the guest
+	 */
+ spin_out:
+	kvm_vcpu_set_in_spin_loop(me, false);
+
+	/* Ensure vcpu is not eligible during next spinloop */
+	kvm_vcpu_set_dy_eligible(me, false);
+}
+EXPORT_SYMBOL_GPL(kvm_englightened_vcpu_on_spin);
+
 
 static int kvm_vcpu_fault(struct vm_area_struct *vma, struct vm_fault *vmf)
 {
@@ -2241,6 +2355,7 @@ static int create_vcpu_fd(struct kvm_vcpu *vcpu)
 {
 	return anon_inode_getfd("kvm-vcpu", &kvm_vcpu_fops, vcpu, O_RDWR | O_CLOEXEC);
 }
+
 
 /*
  * Creates some virtual cpus.  Good luck creating more than one.
@@ -3495,8 +3610,13 @@ static void kvm_sched_out(struct preempt_notifier *pn,
 {
 	struct kvm_vcpu *vcpu = preempt_notifier_to_vcpu(pn);
 
-	if (current->state == TASK_RUNNING)
+	if (current->state == TASK_RUNNING) {
 		vcpu->preempted = true;
+		smp_rmb();
+		if (vcpu->lhp_start_monitor)
+			++vcpu->stat.no_lhps;
+		++vcpu->stat.num_preempts;
+	}
 	kvm_arch_vcpu_put(vcpu);
 }
 

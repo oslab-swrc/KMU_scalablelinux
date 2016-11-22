@@ -721,6 +721,48 @@ config QUEUED_LOCK_STAT
 	  behavior of paravirtualized queued spinlocks and report
 	  them on debugfs.
 
+config ENLIGHTENED_SPINLOCKS
+	bool "Enlightened blocking spinlocks wrt to hypervisor"
+	depends on PARAVIRT_SPINLOCKS
+	---help---
+		These are enlightened spinlocks which provide another level
+		of optimization for the large VMs. Not sure about the
+		impact of on native kernels and its performance for
+		small machines. Still need to check.
+
+		If you are unsure how to answer this question, answer N.
+
+config KVM_ENABLE_COYIELD
+	bool "Share the kvm info with each VM instance"
+	depends on ENLIGHTENED_SPINLOCKS
+	---help---
+		This will allow the lock waiters to schedule other
+		lock holders from different VMs in case they cannot
+		yield to their respective vCPUs.
+
+		If you are unsure how to answer this question, answer N.
+
+config KVM_UPDATE_SCHED_PRIORITY
+	bool "update the scheduling priority of lock-holders"
+	depends on ENLIGHTENED_SPINLOCKS
+	---help---
+		Update the scheduling priority of the very next lock-holder
+		during the kick hypercall to SCHED_RR and vice versa
+		for the older lock-holder.
+
+		If you are unsure how to answer this question, answer N.
+
+config KVM_GLOBAL_LOCK_HOLDER_LIST
+	bool "Store the lock holder information in a global list"
+	depends on ENLIGHTENED_SPINLOCKS
+	---help---
+		The purpose of list is to provide direct access to the
+		lock holders list. The problem with this approach is that
+		it is global and might hurt the performance of the system.
+		Warning: Be careful before enabling this option.
+
+		If you are unsure how to answer this question, answer N.
+
 source "arch/x86/xen/Kconfig"
 
 config KVM_GUEST

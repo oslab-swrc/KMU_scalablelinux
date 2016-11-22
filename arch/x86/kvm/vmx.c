@@ -136,7 +136,8 @@ module_param_named(pml, enable_pml, bool, S_IRUGO);
  * Time is measured based on a counter that runs at the same rate as the TSC,
  * refer SDM volume 3b section 21.6.13 & 22.1.3.
  */
-#define KVM_VMX_DEFAULT_PLE_GAP           128
+#define KVM_VMX_DEFAULT_PLE_GAP           0
+//#define KVM_VMX_DEFAULT_PLE_GAP           128
 #define KVM_VMX_DEFAULT_PLE_WINDOW        4096
 #define KVM_VMX_DEFAULT_PLE_WINDOW_GROW   2
 #define KVM_VMX_DEFAULT_PLE_WINDOW_SHRINK 0
@@ -6383,7 +6384,6 @@ static int handle_pause(struct kvm_vcpu *vcpu)
 
 	skip_emulated_instruction(vcpu);
 	kvm_vcpu_on_spin(vcpu);
-
 	return 1;
 }
 
