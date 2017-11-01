@@ -1,4 +1,12 @@
-        Linux kernel release 4.x <http://kernel.org/>
+This repository is unofficial forked one from linux kernel.
+It include some modified for scalability in memory system.
+We called LDU(Log-based Deferred Update).
+
+You can find more detail in here(https://www.actapress.com/Abstract.aspx?paperId=456169).
+
+---
+
+Linux kernel release 4.x <http://kernel.org/>
 
 These are the release notes for Linux version 4.  Read them carefully,
 as they tell you what this is all about, explain how to install the
