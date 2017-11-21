@@ -1,4 +1,4 @@
-### LDU (Log-based Deferred Update)
+# LDU (Log-based Deferred Update)
 
 ## What is it?
 It include some modified for scalability in memory system.
